@@ -180,3 +180,55 @@ For individual checks:
 ---
 
 *CUBE Buildathon · Commerce Context*
+
+---
+
+## Receiving Manager Application — Implementation & Quick Start
+
+This repository has been implemented as a production-grade **Warehouse Inbound Receiving Manager** built with **React 19, TypeScript 5.8, Vite 6, and Vitest**.
+
+### Quick Start
+
+```bash
+# 1. Install dependencies
+npm install
+
+# 2. Run automated test suite (14 unit & integration tests)
+npm test
+
+# 3. Build production bundle
+npm run build
+
+# 4. Launch development server
+npm run dev
+```
+
+### Core Features Implemented
+
+1. **Purchase Order Line Selection & Inspection:**
+   - Search and select from 25+ real ERP purchase order lines loaded directly from `data/receiving_sample.csv`.
+   - Displays supplier, SKU, fake ASIN, product description, ordered carton packaging, and expected unit count.
+
+2. **Inbound Physical Verification:**
+   - Barcode/SKU entry and scanner matching.
+   - Carton count and units-per-carton counting.
+   - Physical damage grading for cartons and internal units (`none`, `crushing`, `water`, `tears`, `uncertain`).
+   - Quality specification non-conformance flags (`wrong_colour`, `wrong_variant`, `missing_components`, `obvious_defect`).
+   - Standard photographic evidence placeholder attachment.
+
+3. **Live Mathematical Comparison & Discrepancy Engine:**
+   - Computes: $\text{difference} = \text{received quantity} - \text{expected quantity}$.
+   - Side-by-side reconciliation card with real-time delta badges (`-10 SHORT`, `+10 OVER`, `0 MATCHED`).
+   - Automated individual check verdicts: `PASS`, `FAIL`, `UNCERTAIN`.
+   - Overall receiving verdicts: `MATCHED`, `SHORT_RECEIVED`, `OVER_RECEIVED`, `WRONG_PRODUCT`, `DAMAGED`, `QUALITY_DISCREPANCY`, `UNCERTAIN`, `PENDING_REVIEW`.
+   - Actionable warehouse disposition routing (`ACCEPT_TO_PREP`, `HOLD_QUARANTINE_RECOVERY`, `HOLD_SURPLUS`, `SUPERVISOR_REVIEW`).
+
+4. **Engineering Rules Strict Compliance:**
+   - **Rule 1 (Tenancy Isolation):** Enforces row-level isolation between `org_demo_alpha` and `org_demo_bravo`. Cross-tenant queries return zero rows.
+   - **Rule 3 (Fail Open):** Unresolved or partial captures save safely into `PENDING_REVIEW` without blocking dock operators.
+   - **Rule 4 (Uncertain Verdict):** First-class `UNCERTAIN` verdict for ambiguous photos or packaging.
+   - **Honesty Rules:** SHA-256 tamper-evident content hashes and operator override logging with mandatory justifications.
+
+5. **Inter-Pod Interoperability:**
+   - One-click export of the official **Cross-Pod Evidence Contract JSON** to feed **Step 02 Prep Manager** and **Step 05 Recovery Manager**.
+
