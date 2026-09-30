@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { X, Copy, Download, Check, FileJson } from 'lucide-react';
 import { ReceivingRecord } from '../types/receiving';
 import { buildEvidenceContract } from '../services/comparisonEngine';
@@ -13,6 +13,14 @@ export const CrossPodExportModal: React.FC<CrossPodExportModalProps> = ({
   onClose,
 }) => {
   const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [onClose]);
 
   if (!record) return null;
 
@@ -38,7 +46,14 @@ export const CrossPodExportModal: React.FC<CrossPodExportModalProps> = ({
   };
 
   return (
-    <div className="modal-overlay" role="dialog" aria-modal="true">
+    <div
+      className="modal-overlay"
+      role="dialog"
+      aria-modal="true"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
       <div className="modal-content" style={{ maxWidth: '720px' }}>
         <div className="modal-header">
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>

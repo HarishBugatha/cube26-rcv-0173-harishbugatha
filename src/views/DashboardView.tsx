@@ -15,7 +15,6 @@ import { OverrideModal } from '../components/OverrideModal';
 
 interface DashboardViewProps {
   records: ReceivingRecord[];
-  onOpenRecordDetail: (record: ReceivingRecord) => void;
   onConfirmOverride: (override: any, recordId: string) => void;
   activeOperatorId: string;
 }

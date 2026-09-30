@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { X, Package } from 'lucide-react';
 import { PurchaseOrderLine, ReceivingRecord } from '../types/receiving';
 import { DiscrepancyBadge } from './DiscrepancyBadge';
@@ -16,6 +16,14 @@ export const PODetailModal: React.FC<PODetailModalProps> = ({
   onClose,
   onReceiveThis,
 }) => {
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [onClose]);
+
   if (!poLine) return null;
 
   const linkedRecords = records.filter(
@@ -23,7 +31,14 @@ export const PODetailModal: React.FC<PODetailModalProps> = ({
   );
 
   return (
-    <div className="modal-overlay" role="dialog" aria-modal="true">
+    <div
+      className="modal-overlay"
+      role="dialog"
+      aria-modal="true"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
       <div className="modal-content" style={{ maxWidth: '750px' }}>
         <div className="modal-header">
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>

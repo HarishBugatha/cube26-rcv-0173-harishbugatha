@@ -7,6 +7,7 @@ import {
   Sparkles,
   PlusCircle,
   AlertCircle,
+  X,
 } from 'lucide-react';
 import {
   PurchaseOrderLine,
@@ -820,12 +821,27 @@ export const ReceivingForm: React.FC<ReceivingFormProps> = ({
 
         {/* Modal for adding custom PO */}
         {showManualPOModal && (
-          <div className="modal-overlay" role="dialog" aria-modal="true">
+          <div
+            className="modal-overlay"
+            role="dialog"
+            aria-modal="true"
+            onClick={(e) => {
+              if (e.target === e.currentTarget) setShowManualPOModal(false);
+            }}
+          >
             <div className="modal-content" style={{ maxWidth: '520px' }}>
               <div className="modal-header">
                 <h3 style={{ fontSize: '1.05rem', fontWeight: 700, color: '#f8fafc' }}>
                   Create Inbound Purchase Order
                 </h3>
+                <button
+                  type="button"
+                  onClick={() => setShowManualPOModal(false)}
+                  style={{ color: '#94a3b8' }}
+                  aria-label="Close modal"
+                >
+                  <X size={20} />
+                </button>
               </div>
               <form onSubmit={handleManualPOSubmit}>
                 <div className="modal-body">

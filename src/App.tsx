@@ -118,7 +118,6 @@ export const App: React.FC = () => {
         {activeTab === 'dashboard' && (
           <DashboardView
             records={records}
-            onOpenRecordDetail={() => {}}
             onConfirmOverride={handleConfirmOverride}
             activeOperatorId={operatorId}
           />

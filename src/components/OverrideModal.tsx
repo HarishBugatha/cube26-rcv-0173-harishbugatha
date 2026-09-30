@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { X, ShieldAlert, CheckCircle2 } from 'lucide-react';
 import { ReceivingRecord, ReceivingStatus, OperatorOverride } from '../types/receiving';
 import { validateOverrideReason } from '../services/validation';
@@ -17,6 +17,14 @@ export const OverrideModal: React.FC<OverrideModalProps> = ({
   onConfirmOverride,
   activeOperatorId,
 }) => {
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [onClose]);
+
   if (!record) return null;
 
   const [newStatus, setNewStatus] = useState<ReceivingStatus>(
@@ -46,7 +54,14 @@ export const OverrideModal: React.FC<OverrideModalProps> = ({
   };
 
   return (
-    <div className="modal-overlay" role="dialog" aria-modal="true">
+    <div
+      className="modal-overlay"
+      role="dialog"
+      aria-modal="true"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
       <div className="modal-content" style={{ maxWidth: '600px' }}>
         <div className="modal-header">
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>

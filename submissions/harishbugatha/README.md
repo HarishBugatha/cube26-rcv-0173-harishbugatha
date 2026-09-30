@@ -16,7 +16,7 @@
 | **Comparison & Discrepancy Engine** | Mathematical delta, discrepancy priority engine | [`src/services/comparisonEngine.ts`](../../src/services/comparisonEngine.ts) | ✅ Complete |
 | **Validation Rules** | Form validations & friendly error handling | [`src/services/validation.ts`](../../src/services/validation.ts) | ✅ Complete |
 | **Tenancy Isolation Service** | Row-level security for `org_demo_alpha` & `org_demo_bravo` | [`src/services/dataService.ts`](../../src/services/dataService.ts) | ✅ Complete |
-| **Unit & Integration Test Suite** | 14 automated tests passing via Vitest | [`tests/`](../../tests/) | ✅ 100% Pass |
+| **Unit & Integration Test Suite** | 32 automated tests passing via Vitest (Unit, Integration, Security, and 13 Functional Scenarios) | [`tests/`](../../tests/) | ✅ 100% Pass |
 | **Cross-Pod Evidence Contract** | JSON contract feeding 02 Prep and 05 Recovery | [`src/components/CrossPodExportModal.tsx`](../../src/components/CrossPodExportModal.tsx) | ✅ Complete |
 | **Operator Override Audit** | Captures operator overrides with mandatory reasons | [`src/components/OverrideModal.tsx`](../../src/components/OverrideModal.tsx) | ✅ Complete |
 
@@ -28,7 +28,7 @@
 |---|---|:---:|---|
 | **1** | Customer Letter, PR/FAQ, One-Pager | ✅ | Detailed in Architecture & Submission brief |
 | **2** | Rules & Tenancy Enforcement | ✅ | Tenancy Isolation verified with RLS on both orgs |
-| **3** | Headless Agent & Business Logic | ✅ | 14 automated tests passing in Vitest |
+| **3** | Headless Agent & Business Logic | ✅ | 32 automated tests passing in Vitest |
 | **4** | Evaluation Report | ✅ | Pre-loaded with 100 benchmark reference shipments |
 | **5** | Evidence Record Page | ✅ | Inbound terminal with side-by-side reconciliation |
 | **6** | Cross-Pod Contract | ✅ | Validated schema feeding Prep (02) and Recovery (05) |
@@ -47,7 +47,7 @@
 # Install dependencies
 npm install
 
-# Run automated test suites (14 tests)
+# Run automated test suites (32 tests)
 npm test
 
 # Build production bundle
