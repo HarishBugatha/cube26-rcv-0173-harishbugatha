@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Boxes,
   Building2,
@@ -8,6 +8,8 @@ import {
   History,
   Terminal,
   Layers,
+  Clock,
+  Radio,
 } from 'lucide-react';
 import { TenantId } from '../types/receiving';
 
@@ -30,6 +32,18 @@ export const Navbar: React.FC<NavbarProps> = ({
   setOperatorId,
   discrepancyCount,
 }) => {
+  const [timeString, setTimeString] = useState('');
+
+  useEffect(() => {
+    const updateTime = () => {
+      const now = new Date();
+      setTimeString(now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
+    };
+    updateTime();
+    const interval = setInterval(updateTime, 1000);
+    return () => clearInterval(interval);
+  }, []);
+
   return (
     <header className="navbar">
       <div className="navbar-top">
@@ -51,10 +65,49 @@ export const Navbar: React.FC<NavbarProps> = ({
         </div>
 
         <div className="nav-controls">
+          {/* Warehouse Live Clock */}
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '5px',
+              fontSize: '0.75rem',
+              color: '#94a3b8',
+              fontFamily: 'var(--font-mono)',
+              backgroundColor: '#0a0f1d',
+              padding: '0.3rem 0.65rem',
+              borderRadius: 'var(--radius-sm)',
+              border: '1px solid var(--border-subtle)',
+            }}
+            title="Local Warehouse Clock"
+          >
+            <Clock size={13} style={{ color: '#38bdf8' }} />
+            <span>{timeString || '12:00:00'}</span>
+          </div>
+
+          {/* Dock Station Tag */}
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '5px',
+              fontSize: '0.75rem',
+              color: '#cbd5e1',
+              fontFamily: 'var(--font-mono)',
+              backgroundColor: '#1e293b',
+              padding: '0.3rem 0.65rem',
+              borderRadius: 'var(--radius-sm)',
+              border: '1px solid var(--border-subtle)',
+            }}
+          >
+            <Radio size={13} style={{ color: '#34d399' }} />
+            <span>BAY-03</span>
+          </div>
+
           {/* Tenant Switcher enforcing Rule 1 */}
           <div className="tenant-pill" title="Row-Level Security Tenant Scoping">
             <Building2 size={15} style={{ color: '#38bdf8' }} />
-            <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>TENANT:</span>
+            <span style={{ fontSize: '0.725rem', color: '#94a3b8' }}>TENANT:</span>
             <select
               className="tenant-select"
               value={tenantId}
@@ -67,13 +120,13 @@ export const Navbar: React.FC<NavbarProps> = ({
           </div>
 
           {/* Operator ID Badge */}
-          <div className="operator-badge" title="Active Warehouse Operator">
+          <div className="operator-badge" title="Active Warehouse Operator (Click to edit)">
             <User size={14} />
             <input
               type="text"
               value={operatorId}
               onChange={(e) => setOperatorId(e.target.value)}
-              title="Click to change Operator ID"
+              title="Click to edit Operator ID"
               style={{
                 background: 'transparent',
                 border: 'none',
@@ -82,6 +135,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                 fontFamily: 'inherit',
                 fontSize: '0.8rem',
                 outline: 'none',
+                fontWeight: 600,
               }}
             />
           </div>
@@ -92,10 +146,10 @@ export const Navbar: React.FC<NavbarProps> = ({
               display: 'flex',
               alignItems: 'center',
               gap: '6px',
-              fontSize: '0.75rem',
+              fontSize: '0.725rem',
               color: '#34d399',
               fontFamily: 'var(--font-mono)',
-              background: 'rgba(16, 185, 129, 0.1)',
+              background: 'rgba(16, 185, 129, 0.12)',
               padding: '0.25rem 0.6rem',
               borderRadius: '999px',
               border: '1px solid rgba(16, 185, 129, 0.3)',

@@ -76,7 +76,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       </div>
 
       {/* KPI Metrics Banner */}
-      <MetricsBanner records={records} onFilterClick={handleMetricCardClick} />
+      <MetricsBanner
+        records={records}
+        onFilterClick={handleMetricCardClick}
+        activeFilter={statusFilter}
+      />
 
       {/* Filter and Search Bar */}
       <div

@@ -6,6 +6,7 @@ import {
   RotateCcw,
   Sparkles,
   PlusCircle,
+  AlertCircle,
 } from 'lucide-react';
 import {
   PurchaseOrderLine,
@@ -306,16 +307,17 @@ export const ReceivingForm: React.FC<ReceivingFormProps> = ({
 
   return (
     <div className="card-panel">
+      {/* Header */}
       <div className="card-panel-header">
         <div className="card-panel-title">
-          <Barcode size={18} style={{ color: '#38bdf8' }} />
-          <span>Inbound Receiving Terminal</span>
+          <Barcode size={19} style={{ color: '#38bdf8' }} />
+          <span>Inbound Dock Receiving Terminal</span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
           <button
             type="button"
             className="btn-secondary"
-            style={{ padding: '0.25rem 0.55rem', fontSize: '0.75rem' }}
+            style={{ padding: '0.25rem 0.6rem', fontSize: '0.75rem', borderColor: '#3b82f6', color: '#93c5fd' }}
             onClick={() => setShowManualPOModal(true)}
             title="Create manual PO for incoming shipment"
           >
@@ -323,16 +325,17 @@ export const ReceivingForm: React.FC<ReceivingFormProps> = ({
             + Custom PO
           </button>
           <span style={{ fontSize: '0.75rem', color: '#94a3b8', fontFamily: 'var(--font-mono)' }}>
-            BAY: DOCK-03
+            STATION: BAY-03
           </span>
         </div>
       </div>
 
       <div className="card-panel-body">
+        {/* Success Alert */}
         {successToast && (
           <div
             style={{
-              padding: '0.75rem 1rem',
+              padding: '0.85rem 1rem',
               backgroundColor: 'rgba(16, 185, 129, 0.15)',
               border: '1px solid #10b981',
               borderRadius: 'var(--radius-sm)',
@@ -342,17 +345,21 @@ export const ReceivingForm: React.FC<ReceivingFormProps> = ({
               display: 'flex',
               alignItems: 'center',
               gap: '0.5rem',
+              animation: 'fadeIn 0.2s ease',
             }}
           >
-            <CheckCircle2 size={16} />
-            {successToast}
+            <CheckCircle2 size={18} />
+            <div>
+              <strong>Record Logged Successfully:</strong> {successToast}
+            </div>
           </div>
         )}
 
         {/* Step 1: PO Line Selection */}
         <div className="form-group">
           <label className="form-label" htmlFor="po-selector">
-            1. Select Purchase Order Line <span className="required">*</span>
+            <span className="step-badge">1</span>
+            Select Inbound Purchase Order Line <span className="required">*</span>
           </label>
           <div style={{ display: 'flex', gap: '0.5rem' }}>
             <select
@@ -372,49 +379,79 @@ export const ReceivingForm: React.FC<ReceivingFormProps> = ({
               ))}
             </select>
           </div>
-          {formErrors.poNumber && <div className="form-error-msg">{formErrors.poNumber}</div>}
+          {formErrors.poNumber && (
+            <div className="form-error-msg">
+              <AlertCircle size={14} /> {formErrors.poNumber}
+            </div>
+          )}
         </div>
 
+        {/* Expected Product Information Banner */}
         {selectedPOLine && (
           <div
             style={{
               backgroundColor: '#0a0f1d',
-              padding: '0.85rem 1rem',
+              padding: '1rem',
               borderRadius: 'var(--radius-sm)',
               border: '1px solid var(--border-subtle)',
               marginBottom: '1.25rem',
-              fontSize: '0.825rem',
             }}
           >
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.35rem' }}>
-              <span style={{ color: '#94a3b8' }}>Supplier:</span>
-              <span style={{ fontWeight: 600, color: '#f8fafc' }}>{selectedPOLine.supplier}</span>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.5rem' }}>
+              <div>
+                <span style={{ fontSize: '0.725rem', color: '#64748b', textTransform: 'uppercase', fontWeight: 700 }}>
+                  Supplier & Product Description
+                </span>
+                <div style={{ fontWeight: 600, color: '#f8fafc', fontSize: '0.925rem' }}>
+                  {selectedPOLine.productTitle}
+                </div>
+                <div style={{ fontSize: '0.8rem', color: '#94a3b8', marginTop: '2px' }}>
+                  Supplier: <strong style={{ color: '#cbd5e1' }}>{selectedPOLine.supplier}</strong>
+                </div>
+              </div>
+
+              <div style={{ textAlign: 'right' }}>
+                <span style={{ fontSize: '0.725rem', color: '#64748b', textTransform: 'uppercase', fontWeight: 700 }}>
+                  Expected Units
+                </span>
+                <div className="font-mono" style={{ fontSize: '1.25rem', fontWeight: 800, color: '#38bdf8' }}>
+                  {selectedPOLine.qtyOrdered} <span style={{ fontSize: '0.75rem' }}>units</span>
+                </div>
+              </div>
             </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.35rem' }}>
-              <span style={{ color: '#94a3b8' }}>Product Title:</span>
-              <span style={{ fontWeight: 600, color: '#f8fafc' }}>{selectedPOLine.productTitle}</span>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.35rem' }}>
-              <span style={{ color: '#94a3b8' }}>Spec (Color / Variant):</span>
-              <span style={{ color: '#38bdf8' }}>
-                {selectedPOLine.specColour} / {selectedPOLine.specVariant} ({selectedPOLine.specComponents})
-              </span>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-              <span style={{ color: '#94a3b8' }}>PO Expected Units:</span>
-              <span className="font-mono" style={{ fontWeight: 700, color: '#34d399' }}>
-                {selectedPOLine.qtyOrdered} units ({selectedPOLine.cartonsOrdered} ctn × {selectedPOLine.unitsPerCartonOrdered}/ctn)
-              </span>
+
+            <div
+              style={{
+                display: 'flex',
+                gap: '0.75rem',
+                flexWrap: 'wrap',
+                borderTop: '1px solid rgba(255,255,255,0.06)',
+                paddingTop: '0.5rem',
+                fontSize: '0.775rem',
+                color: '#cbd5e1',
+              }}
+            >
+              <div>
+                SKU: <code className="font-mono" style={{ color: '#38bdf8', fontWeight: 600 }}>{selectedPOLine.sku}</code>
+              </div>
+              <div>•</div>
+              <div>
+                Packaging: <strong style={{ color: '#f8fafc' }}>{selectedPOLine.cartonsOrdered}</strong> ctns @ <strong style={{ color: '#f8fafc' }}>{selectedPOLine.unitsPerCartonOrdered}</strong> units/ctn
+              </div>
+              <div>•</div>
+              <div>
+                Spec: <span style={{ color: '#a5b4fc' }}>{selectedPOLine.specColour} / {selectedPOLine.specVariant}</span>
+              </div>
             </div>
           </div>
         )}
 
-        {/* Quick Test Scenario Presets for Easy Evaluation */}
+        {/* Buildathon Test Scenario Presets */}
         <div style={{ marginBottom: '1.25rem' }}>
           <div
             style={{
               fontSize: '0.725rem',
-              fontWeight: 600,
+              fontWeight: 700,
               color: '#94a3b8',
               textTransform: 'uppercase',
               letterSpacing: '0.04em',
@@ -427,11 +464,11 @@ export const ReceivingForm: React.FC<ReceivingFormProps> = ({
             <Sparkles size={13} style={{ color: '#f59e0b' }} />
             Buildathon Test Presets (Instant Simulation):
           </div>
-          <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
             <button
               type="button"
               className="btn-secondary"
-              style={{ fontSize: '0.725rem', padding: '0.3rem 0.6rem' }}
+              style={{ fontSize: '0.75rem', padding: '0.35rem 0.65rem' }}
               onClick={() => applyPresetScenario('matched')}
             >
               Exact Match
@@ -439,7 +476,7 @@ export const ReceivingForm: React.FC<ReceivingFormProps> = ({
             <button
               type="button"
               className="btn-secondary"
-              style={{ fontSize: '0.725rem', padding: '0.3rem 0.6rem', color: '#fbbf24' }}
+              style={{ fontSize: '0.75rem', padding: '0.35rem 0.65rem', color: '#fbbf24', borderColor: 'rgba(245, 158, 11, 0.4)' }}
               onClick={() => applyPresetScenario('short')}
             >
               Short (-10)
@@ -447,7 +484,7 @@ export const ReceivingForm: React.FC<ReceivingFormProps> = ({
             <button
               type="button"
               className="btn-secondary"
-              style={{ fontSize: '0.725rem', padding: '0.3rem 0.6rem', color: '#a5b4fc' }}
+              style={{ fontSize: '0.75rem', padding: '0.35rem 0.65rem', color: '#a5b4fc', borderColor: 'rgba(99, 102, 241, 0.4)' }}
               onClick={() => applyPresetScenario('over')}
             >
               Over (+10)
@@ -455,7 +492,7 @@ export const ReceivingForm: React.FC<ReceivingFormProps> = ({
             <button
               type="button"
               className="btn-secondary"
-              style={{ fontSize: '0.725rem', padding: '0.3rem 0.6rem', color: '#fda4af' }}
+              style={{ fontSize: '0.75rem', padding: '0.35rem 0.65rem', color: '#fda4af', borderColor: 'rgba(225, 29, 72, 0.4)' }}
               onClick={() => applyPresetScenario('wrong_sku')}
             >
               Wrong SKU
@@ -463,7 +500,7 @@ export const ReceivingForm: React.FC<ReceivingFormProps> = ({
             <button
               type="button"
               className="btn-secondary"
-              style={{ fontSize: '0.725rem', padding: '0.3rem 0.6rem', color: '#f87171' }}
+              style={{ fontSize: '0.75rem', padding: '0.35rem 0.65rem', color: '#f87171', borderColor: 'rgba(239, 68, 68, 0.4)' }}
               onClick={() => applyPresetScenario('damaged')}
             >
               Damaged
@@ -471,7 +508,7 @@ export const ReceivingForm: React.FC<ReceivingFormProps> = ({
             <button
               type="button"
               className="btn-secondary"
-              style={{ fontSize: '0.725rem', padding: '0.3rem 0.6rem', color: '#c7d2fe' }}
+              style={{ fontSize: '0.75rem', padding: '0.35rem 0.65rem', color: '#c7d2fe', borderColor: 'rgba(79, 70, 229, 0.4)' }}
               onClick={() => applyPresetScenario('uncertain')}
             >
               Uncertain
@@ -483,14 +520,15 @@ export const ReceivingForm: React.FC<ReceivingFormProps> = ({
           {/* Step 2: SKU Verification */}
           <div className="form-group">
             <label className="form-label" htmlFor="received-sku">
-              2. Scanned / Received Product SKU <span className="required">*</span>
+              <span className="step-badge">2</span>
+              Scanned / Received Product SKU <span className="required">*</span>
             </label>
             <div style={{ display: 'flex', gap: '0.5rem' }}>
               <input
                 id="received-sku"
                 type="text"
                 className={`form-input font-mono ${formErrors.receivedSku ? 'error' : ''}`}
-                placeholder="Scan barcode or enter SKU..."
+                placeholder="Scan barcode or type SKU..."
                 value={receivedSku}
                 onChange={(e) => {
                   const val = e.target.value;
@@ -502,7 +540,7 @@ export const ReceivingForm: React.FC<ReceivingFormProps> = ({
                 <button
                   type="button"
                   className="btn-secondary"
-                  style={{ whiteSpace: 'nowrap', fontSize: '0.8rem' }}
+                  style={{ whiteSpace: 'nowrap', fontSize: '0.8rem', padding: '0.5rem 0.85rem' }}
                   onClick={() => {
                     setReceivedSku(selectedPOLine.sku);
                     notifyChange({ receivedSku: selectedPOLine.sku });
@@ -514,7 +552,9 @@ export const ReceivingForm: React.FC<ReceivingFormProps> = ({
               )}
             </div>
             {formErrors.receivedSku && (
-              <div className="form-error-msg">{formErrors.receivedSku}</div>
+              <div className="form-error-msg">
+                <AlertCircle size={14} /> {formErrors.receivedSku}
+              </div>
             )}
           </div>
 
@@ -522,7 +562,8 @@ export const ReceivingForm: React.FC<ReceivingFormProps> = ({
           <div className="grid-2col form-group">
             <div>
               <label className="form-label" htmlFor="cartons-received">
-                3. Cartons Received <span className="required">*</span>
+                <span className="step-badge">3</span>
+                Cartons Received <span className="required">*</span>
               </label>
               <input
                 id="cartons-received"
@@ -538,7 +579,9 @@ export const ReceivingForm: React.FC<ReceivingFormProps> = ({
                 }}
               />
               {formErrors.cartonsReceived && (
-                <div className="form-error-msg">{formErrors.cartonsReceived}</div>
+                <div className="form-error-msg">
+                  <AlertCircle size={14} /> {formErrors.cartonsReceived}
+                </div>
               )}
             </div>
 
@@ -560,16 +603,41 @@ export const ReceivingForm: React.FC<ReceivingFormProps> = ({
                 }}
               />
               {formErrors.unitsPerCartonCounted && (
-                <div className="form-error-msg">{formErrors.unitsPerCartonCounted}</div>
+                <div className="form-error-msg">
+                  <AlertCircle size={14} /> {formErrors.unitsPerCartonCounted}
+                </div>
               )}
             </div>
+          </div>
+
+          {/* Real-time calculated total units banner */}
+          <div
+            style={{
+              padding: '0.6rem 0.85rem',
+              backgroundColor: '#0a0f1d',
+              borderRadius: 'var(--radius-sm)',
+              border: '1px solid var(--border-subtle)',
+              marginBottom: '1.25rem',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              fontSize: '0.8rem',
+            }}
+          >
+            <span style={{ color: '#94a3b8' }}>
+              Packaging Multiplication: {cartonsReceived || 0} cartons × {unitsPerCartonCounted || 0} units
+            </span>
+            <span className="font-mono" style={{ fontWeight: 700, color: '#f8fafc', fontSize: '0.9rem' }}>
+              = {totalReceived} Total Units
+            </span>
           </div>
 
           {/* Step 4: Condition & Quality Check */}
           <div className="grid-2col form-group">
             <div>
               <label className="form-label" htmlFor="carton-damage">
-                4. Carton Damage Check
+                <span className="step-badge">4</span>
+                Carton Damage Check
               </label>
               <select
                 id="carton-damage"
@@ -631,14 +699,14 @@ export const ReceivingForm: React.FC<ReceivingFormProps> = ({
                     type="button"
                     onClick={() => toggleQualityFlag(flag.id)}
                     style={{
-                      padding: '0.4rem 0.75rem',
+                      padding: '0.45rem 0.85rem',
                       borderRadius: 'var(--radius-sm)',
                       fontSize: '0.8rem',
-                      fontWeight: 500,
+                      fontWeight: 600,
                       border: isActive ? '1px solid #e11d48' : '1px solid var(--border-subtle)',
-                      backgroundColor: isActive ? 'rgba(225, 29, 72, 0.2)' : '#0d1526',
+                      backgroundColor: isActive ? 'rgba(225, 29, 72, 0.25)' : '#0d1526',
                       color: isActive ? '#fda4af' : 'var(--text-muted)',
-                      transition: 'all 0.2s',
+                      transition: 'all 0.15s',
                     }}
                   >
                     {isActive ? '✓ ' : '+ '}
@@ -652,26 +720,26 @@ export const ReceivingForm: React.FC<ReceivingFormProps> = ({
           {/* Step 5: Evidence Capture */}
           <div className="form-group">
             <label className="form-label">
-              <Camera size={14} style={{ display: 'inline', marginRight: '4px' }} />
-              5. Photographic Proof of Delivery
+              <span className="step-badge">5</span>
+              Photographic Proof of Delivery
             </label>
             <div
               style={{
                 display: 'flex',
                 gap: '0.75rem',
-                padding: '0.75rem',
-                backgroundColor: '#0d1526',
+                padding: '0.85rem',
+                backgroundColor: '#0a0f1d',
                 borderRadius: 'var(--radius-sm)',
                 border: '1px solid var(--border-subtle)',
-                fontSize: '0.8rem',
+                fontSize: '0.825rem',
                 color: '#cbd5e1',
                 alignItems: 'center',
               }}
             >
               <div
                 style={{
-                  width: '36px',
-                  height: '36px',
+                  width: '38px',
+                  height: '38px',
                   borderRadius: '4px',
                   backgroundColor: '#1e293b',
                   display: 'flex',
@@ -680,7 +748,7 @@ export const ReceivingForm: React.FC<ReceivingFormProps> = ({
                   color: '#38bdf8',
                 }}
               >
-                <Camera size={20} />
+                <Camera size={22} />
               </div>
               <div style={{ flex: 1 }}>
                 <div style={{ fontWeight: 600 }}>Standard Multi-Angle Fixture Attached</div>
@@ -689,7 +757,7 @@ export const ReceivingForm: React.FC<ReceivingFormProps> = ({
                 </div>
               </div>
               <span className="badge" style={{ backgroundColor: '#1e293b', color: '#93c5fd' }}>
-                3 PHOTOS READY
+                3 PHOTOS ATTACHED
               </span>
             </div>
           </div>
@@ -715,7 +783,7 @@ export const ReceivingForm: React.FC<ReceivingFormProps> = ({
 
           {/* Submit Actions */}
           <div style={{ display: 'flex', gap: '0.75rem', marginTop: '1.5rem' }}>
-            <button type="submit" className="btn-primary" style={{ flex: 1 }}>
+            <button type="submit" className="btn-primary" style={{ flex: 1, padding: '0.75rem 1.25rem' }}>
               <CheckCircle2 size={18} />
               Confirm & Submit Receiving Record
             </button>
@@ -753,16 +821,16 @@ export const ReceivingForm: React.FC<ReceivingFormProps> = ({
         {/* Modal for adding custom PO */}
         {showManualPOModal && (
           <div className="modal-overlay" role="dialog" aria-modal="true">
-            <div className="modal-content" style={{ maxWidth: '500px' }}>
+            <div className="modal-content" style={{ maxWidth: '520px' }}>
               <div className="modal-header">
-                <h3 style={{ fontSize: '1rem', fontWeight: 600, color: '#f8fafc' }}>
+                <h3 style={{ fontSize: '1.05rem', fontWeight: 700, color: '#f8fafc' }}>
                   Create Inbound Purchase Order
                 </h3>
               </div>
               <form onSubmit={handleManualPOSubmit}>
                 <div className="modal-body">
                   <div className="form-group">
-                    <label className="form-label">PO Number</label>
+                    <label className="form-label">PO Number <span className="required">*</span></label>
                     <input
                       type="text"
                       className="form-input font-mono"
@@ -783,7 +851,7 @@ export const ReceivingForm: React.FC<ReceivingFormProps> = ({
                     />
                   </div>
                   <div className="form-group">
-                    <label className="form-label">Product SKU</label>
+                    <label className="form-label">Product SKU <span className="required">*</span></label>
                     <input
                       type="text"
                       className="form-input font-mono"

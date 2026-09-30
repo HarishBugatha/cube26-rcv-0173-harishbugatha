@@ -12,9 +12,14 @@ import { ReceivingRecord } from '../types/receiving';
 interface MetricsBannerProps {
   records: ReceivingRecord[];
   onFilterClick?: (status: string) => void;
+  activeFilter?: string;
 }
 
-export const MetricsBanner: React.FC<MetricsBannerProps> = ({ records, onFilterClick }) => {
+export const MetricsBanner: React.FC<MetricsBannerProps> = ({
+  records,
+  onFilterClick,
+  activeFilter = 'ALL',
+}) => {
   const total = records.length;
   const matched = records.filter((r) => r.status === 'MATCHED').length;
   const shortReceived = records.filter((r) => r.status === 'SHORT_RECEIVED').length;
@@ -27,26 +32,31 @@ export const MetricsBanner: React.FC<MetricsBannerProps> = ({ records, onFilterC
   ).length;
 
   const matchRate = total > 0 ? Math.round((matched / total) * 100) : 0;
+  const discrepancyRate = total > 0 ? Math.round((discrepancies / total) * 100) : 0;
 
   return (
     <div className="metrics-grid" role="region" aria-label="Warehouse Receiving Metrics">
-      {/* Total PO Receipts */}
+      {/* 1. Total PO Receipts */}
       <div
-        className="metric-card"
+        className={`metric-card ${activeFilter === 'ALL' ? 'active-metric-card' : ''}`}
         style={{ cursor: onFilterClick ? 'pointer' : 'default' }}
         onClick={() => onFilterClick && onFilterClick('ALL')}
       >
         <div className="metric-header">
-          <span className="metric-title">Total Receipts</span>
+          <span className="metric-title">Total Inbound Receipts</span>
           <Boxes size={18} style={{ color: '#38bdf8' }} />
         </div>
         <div className="metric-value">{total}</div>
         <div className="metric-subtitle">Across active supplier deliveries</div>
+        {/* Visual micro progress bar */}
+        <div style={{ height: '3px', backgroundColor: 'rgba(255,255,255,0.06)', borderRadius: '2px', marginTop: '8px', overflow: 'hidden' }}>
+          <div style={{ width: '100%', height: '100%', backgroundColor: '#38bdf8' }} />
+        </div>
       </div>
 
-      {/* Matched (Clear to Prep) */}
+      {/* 2. Matched (Clear to Prep) */}
       <div
-        className="metric-card"
+        className={`metric-card ${activeFilter === 'MATCHED' ? 'active-metric-card' : ''}`}
         style={{ cursor: onFilterClick ? 'pointer' : 'default', borderLeft: '4px solid #10b981' }}
         onClick={() => onFilterClick && onFilterClick('MATCHED')}
       >
@@ -56,11 +66,14 @@ export const MetricsBanner: React.FC<MetricsBannerProps> = ({ records, onFilterC
         </div>
         <div className="metric-value" style={{ color: '#34d399' }}>{matched}</div>
         <div className="metric-subtitle">{matchRate}% perfect dock acceptance</div>
+        <div style={{ height: '3px', backgroundColor: 'rgba(255,255,255,0.06)', borderRadius: '2px', marginTop: '8px', overflow: 'hidden' }}>
+          <div style={{ width: `${matchRate}%`, height: '100%', backgroundColor: '#10b981' }} />
+        </div>
       </div>
 
-      {/* Short Received */}
+      {/* 3. Short Received */}
       <div
-        className="metric-card"
+        className={`metric-card ${activeFilter === 'SHORT_RECEIVED' ? 'active-metric-card' : ''}`}
         style={{ cursor: onFilterClick ? 'pointer' : 'default', borderLeft: '4px solid #f59e0b' }}
         onClick={() => onFilterClick && onFilterClick('SHORT_RECEIVED')}
       >
@@ -69,12 +82,15 @@ export const MetricsBanner: React.FC<MetricsBannerProps> = ({ records, onFilterC
           <TrendingDown size={18} style={{ color: '#fbbf24' }} />
         </div>
         <div className="metric-value" style={{ color: '#fbbf24' }}>{shortReceived}</div>
-        <div className="metric-subtitle">Missing units logged for claims</div>
+        <div className="metric-subtitle">Under-shipments logged for recovery</div>
+        <div style={{ height: '3px', backgroundColor: 'rgba(255,255,255,0.06)', borderRadius: '2px', marginTop: '8px', overflow: 'hidden' }}>
+          <div style={{ width: `${total > 0 ? (shortReceived / total) * 100 : 0}%`, height: '100%', backgroundColor: '#f59e0b' }} />
+        </div>
       </div>
 
-      {/* Over Received */}
+      {/* 4. Over Received */}
       <div
-        className="metric-card"
+        className={`metric-card ${activeFilter === 'OVER_RECEIVED' ? 'active-metric-card' : ''}`}
         style={{ cursor: onFilterClick ? 'pointer' : 'default', borderLeft: '4px solid #818cf8' }}
         onClick={() => onFilterClick && onFilterClick('OVER_RECEIVED')}
       >
@@ -84,11 +100,14 @@ export const MetricsBanner: React.FC<MetricsBannerProps> = ({ records, onFilterC
         </div>
         <div className="metric-value" style={{ color: '#a5b4fc' }}>{overReceived}</div>
         <div className="metric-subtitle">Surplus goods held in buffer</div>
+        <div style={{ height: '3px', backgroundColor: 'rgba(255,255,255,0.06)', borderRadius: '2px', marginTop: '8px', overflow: 'hidden' }}>
+          <div style={{ width: `${total > 0 ? (overReceived / total) * 100 : 0}%`, height: '100%', backgroundColor: '#818cf8' }} />
+        </div>
       </div>
 
-      {/* Discrepancies (Damage/Wrong SKU/Quality) */}
+      {/* 5. Discrepancies (Damage/Wrong SKU/Quality) */}
       <div
-        className="metric-card"
+        className={`metric-card ${activeFilter === 'DISCREPANCIES' ? 'active-metric-card' : ''}`}
         style={{ cursor: onFilterClick ? 'pointer' : 'default', borderLeft: '4px solid #ef4444' }}
         onClick={() => onFilterClick && onFilterClick('DISCREPANCIES')}
       >
@@ -97,12 +116,15 @@ export const MetricsBanner: React.FC<MetricsBannerProps> = ({ records, onFilterC
           <AlertOctagon size={18} style={{ color: '#f87171' }} />
         </div>
         <div className="metric-value" style={{ color: '#f87171' }}>{discrepancies}</div>
-        <div className="metric-subtitle">Blocked: wrong SKU, damage, quality</div>
+        <div className="metric-subtitle">{discrepancyRate}% flagged: wrong SKU, damage, spec</div>
+        <div style={{ height: '3px', backgroundColor: 'rgba(255,255,255,0.06)', borderRadius: '2px', marginTop: '8px', overflow: 'hidden' }}>
+          <div style={{ width: `${discrepancyRate}%`, height: '100%', backgroundColor: '#ef4444' }} />
+        </div>
       </div>
 
-      {/* Uncertain / Under Review */}
+      {/* 6. Uncertain / Under Review */}
       <div
-        className="metric-card"
+        className={`metric-card ${activeFilter === 'UNCERTAIN' ? 'active-metric-card' : ''}`}
         style={{ cursor: onFilterClick ? 'pointer' : 'default', borderLeft: '4px solid #6366f1' }}
         onClick={() => onFilterClick && onFilterClick('UNCERTAIN')}
       >
@@ -112,6 +134,9 @@ export const MetricsBanner: React.FC<MetricsBannerProps> = ({ records, onFilterC
         </div>
         <div className="metric-value" style={{ color: '#c7d2fe' }}>{uncertain}</div>
         <div className="metric-subtitle">Rule 4: Inconclusive verdicts</div>
+        <div style={{ height: '3px', backgroundColor: 'rgba(255,255,255,0.06)', borderRadius: '2px', marginTop: '8px', overflow: 'hidden' }}>
+          <div style={{ width: `${total > 0 ? (uncertain / total) * 100 : 0}%`, height: '100%', backgroundColor: '#6366f1' }} />
+        </div>
       </div>
     </div>
   );
