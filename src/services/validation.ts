@@ -1,14 +1,14 @@
 export interface ReceivingFormData {
   poNumber: string;
   poLine: number | '';
-  expectedSku: string;
+  expectedSku?: string;
   receivedSku: string;
-  cartonsReceived: number | '';
-  unitsPerCartonCounted: number | '';
+  cartonsReceived?: number | '';
+  unitsPerCartonCounted?: number | '';
   directQtyReceived?: number | '';
-  cartonDamage: string;
-  unitDamage: string;
-  qualityFlags: string[];
+  cartonDamage?: string;
+  unitDamage?: string;
+  qualityFlags?: string[];
   operatorId: string;
   notes?: string;
 }
@@ -38,34 +38,60 @@ export function validateReceivingForm(formData: ReceivingFormData): ValidationRe
     errors.poLine = 'Valid PO line item must be selected.';
   }
 
-  // SKU validation
+  // Expected SKU validation (if provided)
+  if (formData.expectedSku !== undefined && formData.expectedSku.trim() === '') {
+    errors.expectedSku = 'Expected Product SKU is required.';
+  }
+
+  // Received SKU validation
   if (!formData.receivedSku || formData.receivedSku.trim() === '') {
     errors.receivedSku = 'Received Product SKU is required. Scan barcode or enter SKU code.';
   } else if (/<[^>]*>/g.test(formData.receivedSku)) {
     errors.receivedSku = 'Invalid characters or script tags detected in SKU barcode.';
   }
 
-  // Cartons validation
-  if (formData.cartonsReceived === '' || formData.cartonsReceived === undefined) {
-    errors.cartonsReceived = 'Cartons received is required.';
-  } else if (!Number.isInteger(Number(formData.cartonsReceived))) {
-    errors.cartonsReceived = 'Carton count must be a whole number.';
-  } else if (Number(formData.cartonsReceived) < 0) {
-    errors.cartonsReceived = 'Carton count cannot be negative.';
-  }
+  // Quantity Validation: Either direct quantity or packaging counts (cartons x units)
+  if (formData.directQtyReceived !== undefined) {
+    if (formData.directQtyReceived === '') {
+      errors.directQtyReceived = 'Received quantity is required.';
+    } else if (Number.isNaN(Number(formData.directQtyReceived))) {
+      errors.directQtyReceived = 'Received quantity must be a valid numeric quantity.';
+    } else if (Number(formData.directQtyReceived) < 0) {
+      errors.directQtyReceived = 'Received quantity cannot be negative.';
+    } else if (!Number.isInteger(Number(formData.directQtyReceived))) {
+      errors.directQtyReceived = 'Received quantity must be a whole number.';
+    }
+  } else {
+    // Cartons validation
+    if (formData.cartonsReceived === '' || formData.cartonsReceived === undefined || formData.cartonsReceived === null) {
+      errors.cartonsReceived = 'Cartons received quantity is required.';
+    } else if (Number.isNaN(Number(formData.cartonsReceived))) {
+      errors.cartonsReceived = 'Cartons received must be a valid numeric quantity.';
+    } else if (Number(formData.cartonsReceived) < 0) {
+      errors.cartonsReceived = 'Carton count cannot be negative.';
+    } else if (!Number.isInteger(Number(formData.cartonsReceived))) {
+      errors.cartonsReceived = 'Carton count must be a whole number.';
+    }
 
-  // Units per carton validation
-  if (formData.unitsPerCartonCounted === '' || formData.unitsPerCartonCounted === undefined) {
-    errors.unitsPerCartonCounted = 'Units per carton is required.';
-  } else if (!Number.isInteger(Number(formData.unitsPerCartonCounted))) {
-    errors.unitsPerCartonCounted = 'Units per carton must be a whole number.';
-  } else if (Number(formData.unitsPerCartonCounted) < 0) {
-    errors.unitsPerCartonCounted = 'Units per carton cannot be negative.';
+    // Units per carton validation
+    if (formData.unitsPerCartonCounted === '' || formData.unitsPerCartonCounted === undefined || formData.unitsPerCartonCounted === null) {
+      errors.unitsPerCartonCounted = 'Units per carton quantity is required.';
+    } else if (Number.isNaN(Number(formData.unitsPerCartonCounted))) {
+      errors.unitsPerCartonCounted = 'Units per carton must be a valid numeric quantity.';
+    } else if (Number(formData.unitsPerCartonCounted) < 0) {
+      errors.unitsPerCartonCounted = 'Units per carton cannot be negative.';
+    } else if (!Number.isInteger(Number(formData.unitsPerCartonCounted))) {
+      errors.unitsPerCartonCounted = 'Units per carton must be a whole number.';
+    }
   }
 
   // Total quantity calculation verification
-  const totalUnits = Number(formData.cartonsReceived || 0) * Number(formData.unitsPerCartonCounted || 0);
-  if (totalUnits < 0) {
+  const totalUnits =
+    formData.directQtyReceived !== undefined && formData.directQtyReceived !== ''
+      ? Number(formData.directQtyReceived)
+      : Number(formData.cartonsReceived || 0) * Number(formData.unitsPerCartonCounted || 0);
+
+  if (!Number.isNaN(totalUnits) && totalUnits < 0) {
     errors.general = 'Total calculated quantity cannot be negative.';
   }
 
