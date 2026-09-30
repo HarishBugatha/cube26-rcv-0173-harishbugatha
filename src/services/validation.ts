@@ -27,13 +27,22 @@ export function validateReceivingForm(formData: ReceivingFormData): ValidationRe
   }
 
   // PO Line validation
-  if (formData.poLine === '' || formData.poLine === undefined || Number(formData.poLine) < 1) {
+  const parsedLine = Number(formData.poLine);
+  if (
+    formData.poLine === '' ||
+    formData.poLine === undefined ||
+    Number.isNaN(parsedLine) ||
+    !Number.isInteger(parsedLine) ||
+    parsedLine < 1
+  ) {
     errors.poLine = 'Valid PO line item must be selected.';
   }
 
   // SKU validation
   if (!formData.receivedSku || formData.receivedSku.trim() === '') {
     errors.receivedSku = 'Received Product SKU is required. Scan barcode or enter SKU code.';
+  } else if (/<[^>]*>/g.test(formData.receivedSku)) {
+    errors.receivedSku = 'Invalid characters or script tags detected in SKU barcode.';
   }
 
   // Cartons validation
