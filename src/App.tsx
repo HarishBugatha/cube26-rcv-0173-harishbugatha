@@ -30,6 +30,25 @@ export const App: React.FC = () => {
   const [poLines, setPOLines] = useState<PurchaseOrderLine[]>([]);
   const [selectedPOLine, setSelectedPOLine] = useState<PurchaseOrderLine | null>(null);
 
+  // Sync with URL hash if present
+  useEffect(() => {
+    const handleHashChange = () => {
+      const hash = window.location.hash.replace('#/', '').replace('#', '');
+      if (['terminal', 'dashboard', 'orders', 'discrepancies', 'audit'].includes(hash)) {
+        setActiveTab(hash as any);
+      }
+    };
+
+    handleHashChange();
+    window.addEventListener('hashchange', handleHashChange);
+    return () => window.removeEventListener('hashchange', handleHashChange);
+  }, []);
+
+  const handleTabChange = (tab: 'terminal' | 'dashboard' | 'orders' | 'discrepancies' | 'audit') => {
+    setActiveTab(tab);
+    window.location.hash = `#/${tab}`;
+  };
+
   // Reload data whenever tenantId changes (Rule 1 Tenancy isolation)
   useEffect(() => {
     const loadedRecords = getRecordsByTenant(tenantId);
@@ -47,6 +66,12 @@ export const App: React.FC = () => {
   const handleSubmitRecord = (record: ReceivingRecord) => {
     const created = addReceivingRecord(tenantId, record);
     setRecords((prev) => [created, ...prev]);
+  };
+
+  // Handle custom PO addition
+  const handleAddNewPOLine = (newPO: PurchaseOrderLine) => {
+    setPOLines((prev) => [newPO, ...prev]);
+    setSelectedPOLine(newPO);
   };
 
   // Handle operator override
@@ -68,7 +93,7 @@ export const App: React.FC = () => {
     <div className="app-container">
       <Navbar
         activeTab={activeTab}
-        setActiveTab={setActiveTab}
+        setActiveTab={handleTabChange}
         tenantId={tenantId}
         setTenantId={setTenantId}
         operatorId={operatorId}
@@ -86,6 +111,7 @@ export const App: React.FC = () => {
             operatorId={operatorId}
             tenantId={tenantId}
             onConfirmOverride={handleConfirmOverride}
+            onAddNewPOLine={handleAddNewPOLine}
           />
         )}
 
@@ -104,7 +130,7 @@ export const App: React.FC = () => {
             records={records}
             onSelectForReceiving={(po) => {
               setSelectedPOLine(po);
-              setActiveTab('terminal');
+              handleTabChange('terminal');
             }}
           />
         )}
@@ -140,7 +166,8 @@ export const App: React.FC = () => {
           <strong>CUBE Buildathon 2026</strong> · Commerce Context Stream · Step 01 of 05 Receiving Manager
         </div>
         <div className="font-mono">
-          Tenant: <span style={{ color: '#38bdf8' }}>{tenantId}</span> | Operator: <span style={{ color: '#93c5fd' }}>{operatorId}</span> | Status: ONLINE
+          Tenant: <span style={{ color: '#38bdf8' }}>{tenantId}</span> | Operator:{' '}
+          <span style={{ color: '#93c5fd' }}>{operatorId}</span> | Route: #{activeTab}
         </div>
       </footer>
     </div>

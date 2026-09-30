@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { PurchaseOrderLine, ReceivingRecord, TenantId } from '../types/receiving';
-import { ReceivingForm } from '../components/ReceivingForm';
+import { ReceivingForm, FormLiveValues } from '../components/ReceivingForm';
 import { ComparisonCard } from '../components/ComparisonCard';
 import { compareShipment } from '../services/comparisonEngine';
 import { CrossPodExportModal } from '../components/CrossPodExportModal';
@@ -14,6 +14,7 @@ interface TerminalViewProps {
   operatorId: string;
   tenantId: TenantId;
   onConfirmOverride: (override: any, recordId: string) => void;
+  onAddNewPOLine?: (po: PurchaseOrderLine) => void;
 }
 
 export const TerminalView: React.FC<TerminalViewProps> = ({
@@ -24,6 +25,7 @@ export const TerminalView: React.FC<TerminalViewProps> = ({
   operatorId,
   tenantId,
   onConfirmOverride,
+  onAddNewPOLine,
 }) => {
   const [activeExportRecord, setActiveExportRecord] = useState<ReceivingRecord | null>(null);
   const [activeOverrideRecord, setActiveOverrideRecord] = useState<ReceivingRecord | null>(null);
@@ -37,16 +39,47 @@ export const TerminalView: React.FC<TerminalViewProps> = ({
 
   const activePO = selectedPOLine || poLines[0];
 
-  // Live comparison state (reactive to active PO)
-  const comparison = activePO
-    ? compareShipment({
-        expectedSku: activePO.sku,
+  // Live values tracked from ReceivingForm for real-time reactivity
+  const [liveValues, setLiveValues] = useState<FormLiveValues>({
+    receivedSku: activePO?.sku || '',
+    cartonsReceived: activePO?.cartonsOrdered || 0,
+    unitsPerCartonCounted: activePO?.unitsPerCartonOrdered || 0,
+    cartonDamage: 'none',
+    unitDamage: 'none',
+    qualityFlags: [],
+    notes: '',
+  });
+
+  // Keep liveValues in sync when activePO changes
+  useEffect(() => {
+    if (activePO) {
+      setLiveValues({
         receivedSku: activePO.sku,
-        qtyOrdered: activePO.qtyOrdered,
-        qtyReceived: activePO.qtyOrdered,
+        cartonsReceived: activePO.cartonsOrdered,
+        unitsPerCartonCounted: activePO.unitsPerCartonOrdered,
         cartonDamage: 'none',
         unitDamage: 'none',
         qualityFlags: [],
+        notes: '',
+      });
+    }
+  }, [activePO]);
+
+  const totalLiveReceived =
+    liveValues.cartonsReceived !== '' && liveValues.unitsPerCartonCounted !== ''
+      ? Number(liveValues.cartonsReceived) * Number(liveValues.unitsPerCartonCounted)
+      : 0;
+
+  // Real-time live comparison evaluation
+  const liveComparison = activePO
+    ? compareShipment({
+        expectedSku: activePO.sku,
+        receivedSku: liveValues.receivedSku || activePO.sku,
+        qtyOrdered: activePO.qtyOrdered,
+        qtyReceived: totalLiveReceived,
+        cartonDamage: liveValues.cartonDamage,
+        unitDamage: liveValues.unitDamage,
+        qualityFlags: liveValues.qualityFlags,
       })
     : null;
 
@@ -71,14 +104,16 @@ export const TerminalView: React.FC<TerminalViewProps> = ({
             onSubmitRecord={onSubmitRecord}
             operatorId={operatorId}
             tenantId={tenantId}
+            onLiveValuesChange={(vals) => setLiveValues(vals)}
+            onAddNewPOLine={onAddNewPOLine}
           />
         </div>
 
         {/* Right Column: Live Comparison & Discrepancy Preview */}
         <div>
-          {activePO && comparison ? (
+          {activePO && liveComparison ? (
             <ComparisonCard
-              comparison={comparison}
+              comparison={liveComparison}
               expectedData={{
                 poNumber: activePO.poNumber,
                 poLine: activePO.poLine,
@@ -91,19 +126,19 @@ export const TerminalView: React.FC<TerminalViewProps> = ({
                 qtyOrdered: activePO.qtyOrdered,
               }}
               receivedData={{
-                receivedSku: activePO.sku,
-                cartonsReceived: activePO.cartonsOrdered,
-                unitsPerCartonCounted: activePO.unitsPerCartonOrdered,
-                qtyReceived: activePO.qtyOrdered,
-                cartonDamage: 'none',
-                unitDamage: 'none',
-                qualityFlags: [],
+                receivedSku: liveValues.receivedSku,
+                cartonsReceived: Number(liveValues.cartonsReceived) || 0,
+                unitsPerCartonCounted: Number(liveValues.unitsPerCartonCounted) || 0,
+                qtyReceived: totalLiveReceived,
+                cartonDamage: liveValues.cartonDamage,
+                unitDamage: liveValues.unitDamage,
+                qualityFlags: liveValues.qualityFlags,
                 operatorId,
               }}
               onExportContract={() => {
                 const sampleRecord: ReceivingRecord = {
-                  recordId: `RCV-PREVIEW`,
-                  unitId: `UNIT-SAMPLE`,
+                  recordId: `RCV-LIVE-PREVIEW`,
+                  unitId: `UNIT-LIVE`,
                   orgId: tenantId,
                   poNumber: activePO.poNumber,
                   poLine: activePO.poLine,
@@ -117,24 +152,24 @@ export const TerminalView: React.FC<TerminalViewProps> = ({
                   cartonsOrdered: activePO.cartonsOrdered,
                   unitsPerCartonOrdered: activePO.unitsPerCartonOrdered,
                   qtyOrdered: activePO.qtyOrdered,
-                  cartonsReceived: activePO.cartonsOrdered,
-                  unitsPerCartonCounted: activePO.unitsPerCartonOrdered,
-                  qtyReceived: activePO.qtyOrdered,
-                  receivedSku: activePO.sku,
-                  identityMatch: 'yes',
-                  cartonDamage: 'none',
-                  unitDamage: 'none',
-                  qualityFlags: [],
+                  cartonsReceived: Number(liveValues.cartonsReceived) || 0,
+                  unitsPerCartonCounted: Number(liveValues.unitsPerCartonCounted) || 0,
+                  qtyReceived: totalLiveReceived,
+                  receivedSku: liveValues.receivedSku,
+                  identityMatch: liveComparison.isSkuMatched ? 'yes' : 'no',
+                  cartonDamage: liveValues.cartonDamage,
+                  unitDamage: liveValues.unitDamage,
+                  qualityFlags: liveValues.qualityFlags,
                   photoRefs: [
-                    'fixtures/receiving/UNIT-SAMPLE_pallet.jpg',
-                    'fixtures/receiving/UNIT-SAMPLE_carton.jpg',
+                    'fixtures/receiving/UNIT-LIVE_pallet.jpg',
+                    'fixtures/receiving/UNIT-LIVE_carton.jpg',
                   ],
                   operatorId,
                   capturedAt: new Date().toISOString(),
-                  status: comparison.status,
-                  qtyDifference: comparison.qtyDifference,
-                  disposition: comparison.disposition,
-                  contentHash: 'sha256-preview-contract-hash',
+                  status: liveComparison.status,
+                  qtyDifference: liveComparison.qtyDifference,
+                  disposition: liveComparison.disposition,
+                  contentHash: 'sha256-live-preview-contract-hash',
                 };
                 setActiveExportRecord(sampleRecord);
               }}

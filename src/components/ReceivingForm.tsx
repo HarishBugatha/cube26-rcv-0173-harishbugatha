@@ -5,6 +5,7 @@ import {
   CheckCircle2,
   RotateCcw,
   Sparkles,
+  PlusCircle,
 } from 'lucide-react';
 import {
   PurchaseOrderLine,
@@ -22,6 +23,16 @@ import {
   ReceivingFormData,
 } from '../services/validation';
 
+export interface FormLiveValues {
+  receivedSku: string;
+  cartonsReceived: number | '';
+  unitsPerCartonCounted: number | '';
+  cartonDamage: DamageGrade;
+  unitDamage: DamageGrade;
+  qualityFlags: QualityFlag[];
+  notes: string;
+}
+
 interface ReceivingFormProps {
   poLines: PurchaseOrderLine[];
   selectedPOLine: PurchaseOrderLine | null;
@@ -29,6 +40,8 @@ interface ReceivingFormProps {
   onSubmitRecord: (record: ReceivingRecord) => void;
   operatorId: string;
   tenantId: TenantId;
+  onLiveValuesChange?: (values: FormLiveValues) => void;
+  onAddNewPOLine?: (po: PurchaseOrderLine) => void;
 }
 
 export const ReceivingForm: React.FC<ReceivingFormProps> = ({
@@ -38,6 +51,8 @@ export const ReceivingForm: React.FC<ReceivingFormProps> = ({
   onSubmitRecord,
   operatorId,
   tenantId,
+  onLiveValuesChange,
+  onAddNewPOLine,
 }) => {
   // Form input state
   const [receivedSku, setReceivedSku] = useState('');
@@ -50,6 +65,17 @@ export const ReceivingForm: React.FC<ReceivingFormProps> = ({
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
   const [successToast, setSuccessToast] = useState<string | null>(null);
 
+  // Manual PO entry modal state
+  const [showManualPOModal, setShowManualPOModal] = useState(false);
+  const [manualPO, setManualPO] = useState({
+    poNumber: '',
+    supplier: '',
+    sku: '',
+    productTitle: '',
+    cartonsOrdered: 2,
+    unitsPerCartonOrdered: 12,
+  });
+
   // Sync when selected PO changes
   useEffect(() => {
     if (selectedPOLine) {
@@ -60,8 +86,34 @@ export const ReceivingForm: React.FC<ReceivingFormProps> = ({
       setUnitDamage('none');
       setQualityFlags([]);
       setFormErrors({});
+
+      if (onLiveValuesChange) {
+        onLiveValuesChange({
+          receivedSku: selectedPOLine.sku,
+          cartonsReceived: selectedPOLine.cartonsOrdered,
+          unitsPerCartonCounted: selectedPOLine.unitsPerCartonOrdered,
+          cartonDamage: 'none',
+          unitDamage: 'none',
+          qualityFlags: [],
+          notes: '',
+        });
+      }
     }
   }, [selectedPOLine]);
+
+  // Notify parent on any input change
+  const notifyChange = (updated: Partial<FormLiveValues>) => {
+    if (!onLiveValuesChange) return;
+    onLiveValuesChange({
+      receivedSku: updated.receivedSku !== undefined ? updated.receivedSku : receivedSku,
+      cartonsReceived: updated.cartonsReceived !== undefined ? updated.cartonsReceived : cartonsReceived,
+      unitsPerCartonCounted: updated.unitsPerCartonCounted !== undefined ? updated.unitsPerCartonCounted : unitsPerCartonCounted,
+      cartonDamage: updated.cartonDamage !== undefined ? updated.cartonDamage : cartonDamage,
+      unitDamage: updated.unitDamage !== undefined ? updated.unitDamage : unitDamage,
+      qualityFlags: updated.qualityFlags !== undefined ? updated.qualityFlags : qualityFlags,
+      notes: updated.notes !== undefined ? updated.notes : notes,
+    });
+  };
 
   const totalReceived =
     cartonsReceived !== '' && unitsPerCartonCounted !== ''
@@ -70,65 +122,90 @@ export const ReceivingForm: React.FC<ReceivingFormProps> = ({
 
   // Toggle quality flag
   const toggleQualityFlag = (flag: QualityFlag) => {
-    setQualityFlags((prev) =>
-      prev.includes(flag) ? prev.filter((f) => f !== flag) : [...prev, flag]
-    );
+    const updated = qualityFlags.includes(flag)
+      ? qualityFlags.filter((f) => f !== flag)
+      : [...qualityFlags, flag];
+    setQualityFlags(updated);
+    notifyChange({ qualityFlags: updated });
   };
 
   // Quick preset test scenarios for buildathon evaluation
   const applyPresetScenario = (scenario: 'matched' | 'short' | 'over' | 'wrong_sku' | 'damaged' | 'uncertain') => {
     if (!selectedPOLine) return;
     setFormErrors({});
+    let newSku = selectedPOLine.sku;
+    let newCartons = selectedPOLine.cartonsOrdered;
+    let newUnits = selectedPOLine.unitsPerCartonOrdered;
+    let newCartonDamage: DamageGrade = 'none';
+    let newUnitDamage: DamageGrade = 'none';
+    let newFlags: QualityFlag[] = [];
+
     switch (scenario) {
       case 'matched':
-        setReceivedSku(selectedPOLine.sku);
-        setCartonsReceived(selectedPOLine.cartonsOrdered);
-        setUnitsPerCartonCounted(selectedPOLine.unitsPerCartonOrdered);
-        setCartonDamage('none');
-        setUnitDamage('none');
-        setQualityFlags([]);
         break;
       case 'short':
-        setReceivedSku(selectedPOLine.sku);
-        setCartonsReceived(selectedPOLine.cartonsOrdered);
-        setUnitsPerCartonCounted(Math.max(1, selectedPOLine.unitsPerCartonOrdered - 2));
-        setCartonDamage('none');
-        setUnitDamage('none');
-        setQualityFlags([]);
+        newUnits = Math.max(1, selectedPOLine.unitsPerCartonOrdered - 2);
         break;
       case 'over':
-        setReceivedSku(selectedPOLine.sku);
-        setCartonsReceived(selectedPOLine.cartonsOrdered + 1);
-        setUnitsPerCartonCounted(selectedPOLine.unitsPerCartonOrdered);
-        setCartonDamage('none');
-        setUnitDamage('none');
-        setQualityFlags([]);
+        newCartons = selectedPOLine.cartonsOrdered + 1;
         break;
       case 'wrong_sku':
-        setReceivedSku(`${selectedPOLine.sku}-ERR`);
-        setCartonsReceived(selectedPOLine.cartonsOrdered);
-        setUnitsPerCartonCounted(selectedPOLine.unitsPerCartonOrdered);
-        setCartonDamage('none');
-        setUnitDamage('none');
-        setQualityFlags([]);
+        newSku = `${selectedPOLine.sku}-ERR`;
         break;
       case 'damaged':
-        setReceivedSku(selectedPOLine.sku);
-        setCartonsReceived(selectedPOLine.cartonsOrdered);
-        setUnitsPerCartonCounted(selectedPOLine.unitsPerCartonOrdered);
-        setCartonDamage('crushing');
-        setUnitDamage('water');
-        setQualityFlags([]);
+        newCartonDamage = 'crushing';
+        newUnitDamage = 'water';
         break;
       case 'uncertain':
-        setReceivedSku(selectedPOLine.sku);
-        setCartonsReceived(selectedPOLine.cartonsOrdered);
-        setUnitsPerCartonCounted(selectedPOLine.unitsPerCartonOrdered);
-        setCartonDamage('uncertain');
-        setUnitDamage('uncertain');
-        setQualityFlags([]);
+        newCartonDamage = 'uncertain';
+        newUnitDamage = 'uncertain';
         break;
     }
+
+    setReceivedSku(newSku);
+    setCartonsReceived(newCartons);
+    setUnitsPerCartonCounted(newUnits);
+    setCartonDamage(newCartonDamage);
+    setUnitDamage(newUnitDamage);
+    setQualityFlags(newFlags);
+
+    notifyChange({
+      receivedSku: newSku,
+      cartonsReceived: newCartons,
+      unitsPerCartonCounted: newUnits,
+      cartonDamage: newCartonDamage,
+      unitDamage: newUnitDamage,
+      qualityFlags: newFlags,
+    });
+  };
+
+  const handleManualPOSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!manualPO.poNumber || !manualPO.sku) return;
+
+    const newPO: PurchaseOrderLine = {
+      id: `${tenantId}_${manualPO.poNumber}_1`,
+      poNumber: manualPO.poNumber.trim().toUpperCase(),
+      poLine: 1,
+      orgId: tenantId,
+      supplier: manualPO.supplier || 'Dock Inbound Supplier',
+      sku: manualPO.sku.trim().toUpperCase(),
+      asin: 'B0CUSTOM001',
+      productTitle: manualPO.productTitle || 'Manual Dock Delivery Item',
+      specColour: 'standard',
+      specVariant: 'standard',
+      specComponents: 'unit',
+      cartonsOrdered: Number(manualPO.cartonsOrdered) || 1,
+      unitsPerCartonOrdered: Number(manualPO.unitsPerCartonOrdered) || 1,
+      qtyOrdered: (Number(manualPO.cartonsOrdered) || 1) * (Number(manualPO.unitsPerCartonOrdered) || 1),
+      status: 'PENDING',
+    };
+
+    if (onAddNewPOLine) {
+      onAddNewPOLine(newPO);
+    }
+    onSelectPOLine(newPO);
+    setShowManualPOModal(false);
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -223,7 +300,7 @@ export const ReceivingForm: React.FC<ReceivingFormProps> = ({
     };
 
     onSubmitRecord(newRecord);
-    setSuccessToast(`Receiving Record ${recordId} logged successfully. Status: ${comparison.status}`);
+    setSuccessToast(`Receiving Record ${recordId} confirmed! Status: ${comparison.status}`);
     setTimeout(() => setSuccessToast(null), 4000);
   };
 
@@ -234,9 +311,21 @@ export const ReceivingForm: React.FC<ReceivingFormProps> = ({
           <Barcode size={18} style={{ color: '#38bdf8' }} />
           <span>Inbound Receiving Terminal</span>
         </div>
-        <span style={{ fontSize: '0.75rem', color: '#94a3b8', fontFamily: 'var(--font-mono)' }}>
-          STATION: DOCK-BAY-03
-        </span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          <button
+            type="button"
+            className="btn-secondary"
+            style={{ padding: '0.25rem 0.55rem', fontSize: '0.75rem' }}
+            onClick={() => setShowManualPOModal(true)}
+            title="Create manual PO for incoming shipment"
+          >
+            <PlusCircle size={13} />
+            + Custom PO
+          </button>
+          <span style={{ fontSize: '0.75rem', color: '#94a3b8', fontFamily: 'var(--font-mono)' }}>
+            BAY: DOCK-03
+          </span>
+        </div>
       </div>
 
       <div className="card-panel-body">
@@ -336,7 +425,7 @@ export const ReceivingForm: React.FC<ReceivingFormProps> = ({
             }}
           >
             <Sparkles size={13} style={{ color: '#f59e0b' }} />
-            Quick Scenario Presets (Buildathon Evaluation Modes):
+            Buildathon Test Presets (Instant Simulation):
           </div>
           <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap' }}>
             <button
@@ -353,7 +442,7 @@ export const ReceivingForm: React.FC<ReceivingFormProps> = ({
               style={{ fontSize: '0.725rem', padding: '0.3rem 0.6rem', color: '#fbbf24' }}
               onClick={() => applyPresetScenario('short')}
             >
-              Short Shipment
+              Short (-10)
             </button>
             <button
               type="button"
@@ -361,7 +450,7 @@ export const ReceivingForm: React.FC<ReceivingFormProps> = ({
               style={{ fontSize: '0.725rem', padding: '0.3rem 0.6rem', color: '#a5b4fc' }}
               onClick={() => applyPresetScenario('over')}
             >
-              Over Shipment
+              Over (+10)
             </button>
             <button
               type="button"
@@ -377,7 +466,7 @@ export const ReceivingForm: React.FC<ReceivingFormProps> = ({
               style={{ fontSize: '0.725rem', padding: '0.3rem 0.6rem', color: '#f87171' }}
               onClick={() => applyPresetScenario('damaged')}
             >
-              Damaged Goods
+              Damaged
             </button>
             <button
               type="button"
@@ -403,14 +492,21 @@ export const ReceivingForm: React.FC<ReceivingFormProps> = ({
                 className={`form-input font-mono ${formErrors.receivedSku ? 'error' : ''}`}
                 placeholder="Scan barcode or enter SKU..."
                 value={receivedSku}
-                onChange={(e) => setReceivedSku(e.target.value)}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setReceivedSku(val);
+                  notifyChange({ receivedSku: val });
+                }}
               />
               {selectedPOLine && (
                 <button
                   type="button"
                   className="btn-secondary"
                   style={{ whiteSpace: 'nowrap', fontSize: '0.8rem' }}
-                  onClick={() => setReceivedSku(selectedPOLine.sku)}
+                  onClick={() => {
+                    setReceivedSku(selectedPOLine.sku);
+                    notifyChange({ receivedSku: selectedPOLine.sku });
+                  }}
                   title="Populate SKU from PO line"
                 >
                   Match PO
@@ -435,9 +531,11 @@ export const ReceivingForm: React.FC<ReceivingFormProps> = ({
                 step="1"
                 className={`form-input font-mono ${formErrors.cartonsReceived ? 'error' : ''}`}
                 value={cartonsReceived}
-                onChange={(e) =>
-                  setCartonsReceived(e.target.value === '' ? '' : parseInt(e.target.value, 10))
-                }
+                onChange={(e) => {
+                  const val = e.target.value === '' ? '' : parseInt(e.target.value, 10);
+                  setCartonsReceived(val);
+                  notifyChange({ cartonsReceived: val });
+                }}
               />
               {formErrors.cartonsReceived && (
                 <div className="form-error-msg">{formErrors.cartonsReceived}</div>
@@ -455,11 +553,11 @@ export const ReceivingForm: React.FC<ReceivingFormProps> = ({
                 step="1"
                 className={`form-input font-mono ${formErrors.unitsPerCartonCounted ? 'error' : ''}`}
                 value={unitsPerCartonCounted}
-                onChange={(e) =>
-                  setUnitsPerCartonCounted(
-                    e.target.value === '' ? '' : parseInt(e.target.value, 10)
-                  )
-                }
+                onChange={(e) => {
+                  const val = e.target.value === '' ? '' : parseInt(e.target.value, 10);
+                  setUnitsPerCartonCounted(val);
+                  notifyChange({ unitsPerCartonCounted: val });
+                }}
               />
               {formErrors.unitsPerCartonCounted && (
                 <div className="form-error-msg">{formErrors.unitsPerCartonCounted}</div>
@@ -477,7 +575,11 @@ export const ReceivingForm: React.FC<ReceivingFormProps> = ({
                 id="carton-damage"
                 className="form-select"
                 value={cartonDamage}
-                onChange={(e) => setCartonDamage(e.target.value as DamageGrade)}
+                onChange={(e) => {
+                  const val = e.target.value as DamageGrade;
+                  setCartonDamage(val);
+                  notifyChange({ cartonDamage: val });
+                }}
               >
                 <option value="none">None (Undamaged)</option>
                 <option value="crushing">Crushing / Compression</option>
@@ -495,7 +597,11 @@ export const ReceivingForm: React.FC<ReceivingFormProps> = ({
                 id="unit-damage"
                 className="form-select"
                 value={unitDamage}
-                onChange={(e) => setUnitDamage(e.target.value as DamageGrade)}
+                onChange={(e) => {
+                  const val = e.target.value as DamageGrade;
+                  setUnitDamage(val);
+                  notifyChange({ unitDamage: val });
+                }}
               >
                 <option value="none">None (Pristine)</option>
                 <option value="crushing">Crushing / Dents</option>
@@ -599,7 +705,11 @@ export const ReceivingForm: React.FC<ReceivingFormProps> = ({
               className="form-textarea"
               placeholder="e.g. Pallet seal intact; outer wrap damp on bottom corner..."
               value={notes}
-              onChange={(e) => setNotes(e.target.value)}
+              onChange={(e) => {
+                const val = e.target.value;
+                setNotes(val);
+                notifyChange({ notes: val });
+              }}
             />
           </div>
 
@@ -621,6 +731,15 @@ export const ReceivingForm: React.FC<ReceivingFormProps> = ({
                   setUnitDamage('none');
                   setQualityFlags([]);
                   setNotes('');
+                  notifyChange({
+                    receivedSku: selectedPOLine.sku,
+                    cartonsReceived: selectedPOLine.cartonsOrdered,
+                    unitsPerCartonCounted: selectedPOLine.unitsPerCartonOrdered,
+                    cartonDamage: 'none',
+                    unitDamage: 'none',
+                    qualityFlags: [],
+                    notes: '',
+                  });
                 }
               }}
               title="Reset fields to PO default"
@@ -630,6 +749,103 @@ export const ReceivingForm: React.FC<ReceivingFormProps> = ({
             </button>
           </div>
         </form>
+
+        {/* Modal for adding custom PO */}
+        {showManualPOModal && (
+          <div className="modal-overlay" role="dialog" aria-modal="true">
+            <div className="modal-content" style={{ maxWidth: '500px' }}>
+              <div className="modal-header">
+                <h3 style={{ fontSize: '1rem', fontWeight: 600, color: '#f8fafc' }}>
+                  Create Inbound Purchase Order
+                </h3>
+              </div>
+              <form onSubmit={handleManualPOSubmit}>
+                <div className="modal-body">
+                  <div className="form-group">
+                    <label className="form-label">PO Number</label>
+                    <input
+                      type="text"
+                      className="form-input font-mono"
+                      placeholder="e.g. PO-9001"
+                      required
+                      value={manualPO.poNumber}
+                      onChange={(e) => setManualPO({ ...manualPO, poNumber: e.target.value })}
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Supplier Name</label>
+                    <input
+                      type="text"
+                      className="form-input"
+                      placeholder="e.g. Acme Logistics"
+                      value={manualPO.supplier}
+                      onChange={(e) => setManualPO({ ...manualPO, supplier: e.target.value })}
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Product SKU</label>
+                    <input
+                      type="text"
+                      className="form-input font-mono"
+                      placeholder="e.g. SKU-CUSTOM-01"
+                      required
+                      value={manualPO.sku}
+                      onChange={(e) => setManualPO({ ...manualPO, sku: e.target.value })}
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Product Title</label>
+                    <input
+                      type="text"
+                      className="form-input"
+                      placeholder="e.g. Industrial Solar Lamp"
+                      value={manualPO.productTitle}
+                      onChange={(e) => setManualPO({ ...manualPO, productTitle: e.target.value })}
+                    />
+                  </div>
+                  <div className="grid-2col">
+                    <div className="form-group">
+                      <label className="form-label">Cartons Ordered</label>
+                      <input
+                        type="number"
+                        min="1"
+                        className="form-input font-mono"
+                        value={manualPO.cartonsOrdered}
+                        onChange={(e) =>
+                          setManualPO({ ...manualPO, cartonsOrdered: parseInt(e.target.value, 10) })
+                        }
+                      />
+                    </div>
+                    <div className="form-group">
+                      <label className="form-label">Units / Carton</label>
+                      <input
+                        type="number"
+                        min="1"
+                        className="form-input font-mono"
+                        value={manualPO.unitsPerCartonOrdered}
+                        onChange={(e) =>
+                          setManualPO({ ...manualPO, unitsPerCartonOrdered: parseInt(e.target.value, 10) })
+                        }
+                      />
+                    </div>
+                  </div>
+                </div>
+                <div className="modal-footer">
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    onClick={() => setShowManualPOModal(false)}
+                  >
+                    Cancel
+                  </button>
+                  <button type="submit" className="btn-primary">
+                    Create & Select PO
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
