@@ -10,12 +10,13 @@ import {
   Layers,
   Clock,
   Radio,
+  Scale,
 } from 'lucide-react';
 import { TenantId } from '../types/receiving';
 
 interface NavbarProps {
-  activeTab: 'terminal' | 'dashboard' | 'orders' | 'discrepancies' | 'audit';
-  setActiveTab: (tab: 'terminal' | 'dashboard' | 'orders' | 'discrepancies' | 'audit') => void;
+  activeTab: 'debate' | 'terminal' | 'dashboard' | 'orders' | 'discrepancies' | 'audit';
+  setActiveTab: (tab: 'debate' | 'terminal' | 'dashboard' | 'orders' | 'discrepancies' | 'audit') => void;
   tenantId: TenantId;
   setTenantId: (tenant: TenantId) => void;
   operatorId: string;
@@ -170,6 +171,32 @@ export const Navbar: React.FC<NavbarProps> = ({
       </div>
 
       <nav className="navbar-tabs" aria-label="Main Navigation">
+        <button
+          className={`nav-tab-btn ${activeTab === 'debate' ? 'active' : ''}`}
+          onClick={() => setActiveTab('debate')}
+          style={{
+            borderLeft: activeTab === 'debate' ? '3px solid var(--accent-cyan)' : 'none',
+            background: activeTab === 'debate' ? 'rgba(6, 182, 212, 0.15)' : 'transparent',
+          }}
+        >
+          <Scale size={17} style={{ color: activeTab === 'debate' ? '#22d3ee' : '#94a3b8' }} />
+          <span>PRD-3 DEBATE</span>
+          <span
+            style={{
+              backgroundColor: 'rgba(6, 182, 212, 0.25)',
+              color: '#38bdf8',
+              border: '1px solid rgba(6, 182, 212, 0.4)',
+              borderRadius: '999px',
+              padding: '0.1rem 0.45rem',
+              fontSize: '0.68rem',
+              fontWeight: 700,
+              marginLeft: '0.35rem',
+            }}
+          >
+            10 SCENARIOS
+          </span>
+        </button>
+
         <button
           className={`nav-tab-btn ${activeTab === 'terminal' ? 'active' : ''}`}
           onClick={() => setActiveTab('terminal')}

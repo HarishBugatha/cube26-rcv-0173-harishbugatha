@@ -17,13 +17,14 @@ import { DashboardView } from './views/DashboardView';
 import { OrdersView } from './views/OrdersView';
 import { DiscrepanciesView } from './views/DiscrepanciesView';
 import { AuditView } from './views/AuditView';
+import { DebateWorkspaceView } from './views/DebateWorkspaceView';
 
 export const App: React.FC = () => {
   const [tenantId, setTenantId] = useState<TenantId>('org_demo_alpha');
   const [operatorId, setOperatorId] = useState('op_harish');
   const [activeTab, setActiveTab] = useState<
-    'terminal' | 'dashboard' | 'orders' | 'discrepancies' | 'audit'
-  >('terminal');
+    'debate' | 'terminal' | 'dashboard' | 'orders' | 'discrepancies' | 'audit'
+  >('debate');
 
   // Tenant-scoped state
   const [records, setRecords] = useState<ReceivingRecord[]>([]);
@@ -34,7 +35,7 @@ export const App: React.FC = () => {
   useEffect(() => {
     const handleHashChange = () => {
       const hash = window.location.hash.replace('#/', '').replace('#', '');
-      if (['terminal', 'dashboard', 'orders', 'discrepancies', 'audit'].includes(hash)) {
+      if (['debate', 'terminal', 'dashboard', 'orders', 'discrepancies', 'audit'].includes(hash)) {
         setActiveTab(hash as any);
       }
     };
@@ -44,7 +45,7 @@ export const App: React.FC = () => {
     return () => window.removeEventListener('hashchange', handleHashChange);
   }, []);
 
-  const handleTabChange = (tab: 'terminal' | 'dashboard' | 'orders' | 'discrepancies' | 'audit') => {
+  const handleTabChange = (tab: 'debate' | 'terminal' | 'dashboard' | 'orders' | 'discrepancies' | 'audit') => {
     setActiveTab(tab);
     window.location.hash = `#/${tab}`;
   };
@@ -102,6 +103,15 @@ export const App: React.FC = () => {
       />
 
       <main className="main-content">
+        {activeTab === 'debate' && (
+          <DebateWorkspaceView
+            tenantId={tenantId}
+            operatorId={operatorId}
+            onSubmitRecord={handleSubmitRecord}
+            onNavigateToTerminal={() => handleTabChange('terminal')}
+          />
+        )}
+
         {activeTab === 'terminal' && (
           <TerminalView
             poLines={poLines}

@@ -164,5 +164,176 @@ export interface CrossPodEvidenceContract {
     operatorId: string;
     capturedAt: string;
     contentHash: string;
+    cropHashes?: string[];
+    debateVerdict?: PRDVerdict;
+  };
+}
+
+// -------------------------------------------------------------
+// PRD-3 DEBATE ARCHITECTURE TYPES
+// -------------------------------------------------------------
+
+export type ClaimStatus = 'VERIFIED' | 'CHALLENGED' | 'REJECTED';
+export type PRDVerdict = 'ACCEPT' | 'EXCEPTION' | 'UNCERTAIN';
+
+export interface ProsecutorRole {
+  role: 'PROSECUTOR';
+  thesis: string;
+  defectType: string;
+  severity: string;
+  evidenceFocus: string;
+  confidence: number;
+  arguments: string[];
+}
+
+export interface DefenderRole {
+  role: 'DEFENDER';
+  stance: string;
+  arguments: string[];
+  defensePlausibility: number;
+  concession?: string | null;
+}
+
+export interface BlindVerifierRole {
+  role: 'BLIND_VERIFIER';
+  protocol: 'STRICT_ISOLATION';
+  promptDelivered: string;
+  inputCropHash: string;
+  inputCropDimensions: string;
+  cropDataUrl?: string;
+  observations: string[];
+  detectedPhysicalFeatures: string[];
+  observationalConfidence: number;
+  independentVerdict?: string | null;
+}
+
+export interface CropPixelCoords {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+  imageWidth?: number;
+  imageHeight?: number;
+}
+
+export interface ClaimEvidence {
+  cropBase64?: string;
+  cropHash: string;
+  pixelCoords: CropPixelCoords;
+  masterImageHash: string;
+}
+
+export interface DebatedClaim {
+  claimId: string;
+  claimTitle: string;
+  claimType: string;
+  severity: string;
+  poExpected: string;
+  physicalObserved: string;
+  bbox: [number, number, number, number];
+  status: ClaimStatus;
+  classificationRationale: string;
+  prosecutor: ProsecutorRole;
+  defender: DefenderRole;
+  blindVerifier: BlindVerifierRole;
+  evidence: ClaimEvidence;
+  metrics: {
+    durationMs: number;
+    prosecutorConfidence: number;
+    defenderPlausibility: number;
+    blindConfidence: number;
+  };
+}
+
+export interface EvidenceGraphNode {
+  id: string;
+  type: 'VERDICT' | 'CLAIM' | 'PROSECUTOR' | 'DEFENDER' | 'BLIND_VERIFIER' | 'IMAGE_CROP' | 'IMAGE_HASH';
+  label: string;
+  status?: string;
+  severity?: string;
+  confidence?: number;
+  plausibility?: number;
+  sha256?: string;
+  description?: string;
+  data?: any;
+}
+
+export interface EvidenceGraphEdge {
+  from: string;
+  to: string;
+  label?: string;
+  status?: string;
+}
+
+export interface EvidenceGraph {
+  nodes: EvidenceGraphNode[];
+  edges: EvidenceGraphEdge[];
+  masterImageHash: string;
+  rawImageHash?: string;
+}
+
+export interface SecurityAuditSummary {
+  rawImageSha256: string;
+  cleanImageSha256: string;
+  metadataStripped: boolean;
+  isolationProtocolEnforced: boolean;
+  textSanitizationApplied: boolean;
+}
+
+export interface DebateInspectionReport {
+  inspectionId: string;
+  timestamp: string;
+  scenarioId?: string;
+  isCustomUpload?: boolean;
+  poNumber: string;
+  vendor: string;
+  expectedSku: string;
+  expectedQuantity: number;
+  finalVerdict: PRDVerdict;
+  recommendedAction: string;
+  decisionRationale: string;
+  claimsSummary: {
+    total: number;
+    verified: number;
+    challenged: number;
+    rejected: number;
+  };
+  debatedClaims: DebatedClaim[];
+  evidenceGraph: EvidenceGraph;
+  securityAudit: SecurityAuditSummary;
+  annotatedImageBase64: string;
+  metrics: {
+    totalDurationMs: number;
+    claimCount: number;
+  };
+}
+
+export interface PRDScenarioPo {
+  poNumber: string;
+  vendor: string;
+  expectedSku: string;
+  productName: string;
+  expectedQuantity: number;
+  expectedVariant: string;
+  expectedComponents: string[];
+  carrierTracking: string;
+  notes: string;
+}
+
+export interface PRDScenario {
+  id: string;
+  name: string;
+  category: string;
+  description: string;
+  expectedVerdict: PRDVerdict;
+  po: PRDScenarioPo;
+  imageDataUrl?: string;
+  sha256?: string;
+  visualMetadata?: {
+    itemsDetected: number;
+    detectedSku: string;
+    detectedVariant: string;
+    packagingStatus: string;
+    missingComponents: string[];
   };
 }
