@@ -16,10 +16,9 @@ import {
   ReceivingRecord,
   TenantId,
 } from '../types/receiving';
-import {
-  compareShipment,
-  generateContentHash,
-} from '../services/comparisonEngine';
+import { compareShipment } from '../services/comparisonEngine';
+import { nextUnitId } from '../services/dataService';
+import { presetValues, presetLabel, PresetScenario } from '../services/receivingPresets';
 import {
   validateReceivingForm,
   ReceivingFormData,
@@ -132,37 +131,16 @@ export const ReceivingForm: React.FC<ReceivingFormProps> = ({
   };
 
   // Quick preset test scenarios for buildathon evaluation
-  const applyPresetScenario = (scenario: 'matched' | 'short' | 'over' | 'wrong_sku' | 'damaged' | 'uncertain') => {
+  const applyPresetScenario = (scenario: PresetScenario) => {
     if (!selectedPOLine) return;
     setFormErrors({});
-    let newSku = selectedPOLine.sku;
-    let newCartons = selectedPOLine.cartonsOrdered;
-    let newUnits = selectedPOLine.unitsPerCartonOrdered;
-    let newCartonDamage: DamageGrade = 'none';
-    let newUnitDamage: DamageGrade = 'none';
-    let newFlags: QualityFlag[] = [];
-
-    switch (scenario) {
-      case 'matched':
-        break;
-      case 'short':
-        newUnits = Math.max(1, selectedPOLine.unitsPerCartonOrdered - 2);
-        break;
-      case 'over':
-        newCartons = selectedPOLine.cartonsOrdered + 1;
-        break;
-      case 'wrong_sku':
-        newSku = `${selectedPOLine.sku}-ERR`;
-        break;
-      case 'damaged':
-        newCartonDamage = 'crushing';
-        newUnitDamage = 'water';
-        break;
-      case 'uncertain':
-        newCartonDamage = 'uncertain';
-        newUnitDamage = 'uncertain';
-        break;
-    }
+    const preset = presetValues(selectedPOLine, scenario);
+    const newSku = preset.receivedSku;
+    const newCartons = preset.cartonsReceived;
+    const newUnits = preset.unitsPerCartonCounted;
+    const newCartonDamage: DamageGrade = preset.cartonDamage;
+    const newUnitDamage: DamageGrade = preset.unitDamage;
+    const newFlags: QualityFlag[] = preset.qualityFlags;
 
     setReceivedSku(newSku);
     setCartonsReceived(newCartons);
@@ -251,9 +229,9 @@ export const ReceivingForm: React.FC<ReceivingFormProps> = ({
     });
 
     const now = new Date().toISOString();
-    const unitSeq = Math.floor(1000 + Math.random() * 9000);
-    const unitId = `UNIT-${unitSeq}`;
-    const recordId = `RCV-${unitSeq}`;
+    // Deterministic shared join key (next UNIT-#### after the highest in use); record ID follows the same number
+    const unitId = nextUnitId();
+    const recordId = unitId.replace(/^UNIT-/, 'RCV-');
 
     const newRecord: ReceivingRecord = {
       recordId,
@@ -287,18 +265,12 @@ export const ReceivingForm: React.FC<ReceivingFormProps> = ({
       operatorId,
       capturedAt: now,
       status: comparison.status,
+      discrepancies: comparison.discrepancies,
       qtyDifference: comparison.qtyDifference,
       disposition: comparison.disposition,
       notes,
-      contentHash: generateContentHash({
-        poNumber: selectedPOLine.poNumber,
-        poLine: selectedPOLine.poLine,
-        sku: selectedPOLine.sku,
-        qtyReceived: totalReceived,
-        status: comparison.status,
-        operatorId,
-        capturedAt: now,
-      }),
+      // SHA-256 content hash is computed from the stored content by dataService.addReceivingRecord
+      contentHash: '',
     };
 
     onSubmitRecord(newRecord);
@@ -480,7 +452,7 @@ export const ReceivingForm: React.FC<ReceivingFormProps> = ({
               style={{ fontSize: '0.75rem', padding: '0.35rem 0.65rem', color: '#fbbf24', borderColor: 'rgba(245, 158, 11, 0.4)' }}
               onClick={() => applyPresetScenario('short')}
             >
-              Short (-10)
+              {presetLabel(selectedPOLine, 'short')}
             </button>
             <button
               type="button"
@@ -488,7 +460,7 @@ export const ReceivingForm: React.FC<ReceivingFormProps> = ({
               style={{ fontSize: '0.75rem', padding: '0.35rem 0.65rem', color: '#a5b4fc', borderColor: 'rgba(99, 102, 241, 0.4)' }}
               onClick={() => applyPresetScenario('over')}
             >
-              Over (+10)
+              {presetLabel(selectedPOLine, 'over')}
             </button>
             <button
               type="button"

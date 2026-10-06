@@ -1,28 +1,45 @@
 import React, { useState, useMemo } from 'react';
 import {
   Search,
-  Filter,
   FileCode,
   Edit3,
   RotateCcw,
-  AlertCircle,
+  Inbox,
+  ScanSearch,
+  Table2,
 } from 'lucide-react';
-import { ReceivingRecord } from '../types/receiving';
+import { ReceivingRecord, ReceivingStatus } from '../types/receiving';
+import { recordDiscrepancies, recordHasStatus } from '../services/comparisonEngine';
 import { MetricsBanner } from '../components/MetricsBanner';
 import { DiscrepancyBadge } from '../components/DiscrepancyBadge';
 import { CrossPodExportModal } from '../components/CrossPodExportModal';
 import { OverrideModal } from '../components/OverrideModal';
+import InspectionHistory, { InspectionHistoryEntry } from '../components/InspectionHistory';
+import { EmptyState } from '../components/ui';
 
 interface DashboardViewProps {
   records: ReceivingRecord[];
   onConfirmOverride: (override: any, recordId: string) => void;
   activeOperatorId: string;
+  inspections: InspectionHistoryEntry[];
+  onOpenInspection: (inspectionId: string) => void;
+  onNewInspection: () => void;
 }
+
+const formatDateTime = (iso: string) => {
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime())
+    ? '—'
+    : d.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+};
 
 export const DashboardView: React.FC<DashboardViewProps> = ({
   records,
   onConfirmOverride,
   activeOperatorId,
+  inspections,
+  onOpenInspection,
+  onNewInspection,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
@@ -32,7 +49,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   // Filtered records
   const filteredRecords = useMemo(() => {
     return records.filter((r) => {
-      // Search term matching
       const term = searchTerm.toLowerCase();
       const matchesSearch =
         term === '' ||
@@ -43,109 +59,105 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         r.sku.toLowerCase().includes(term) ||
         r.productTitle.toLowerCase().includes(term);
 
-      // Status filtering
+      // Filters match a discrepancy whether it is the primary status or an additional one
       let matchesStatus = true;
       if (statusFilter === 'ALL') {
         matchesStatus = true;
       } else if (statusFilter === 'DISCREPANCIES') {
-        matchesStatus = ['WRONG_PRODUCT', 'DAMAGED', 'QUALITY_DISCREPANCY'].includes(r.status);
+        matchesStatus = (['WRONG_PRODUCT', 'DAMAGED', 'QUALITY_DISCREPANCY'] as const).some((s) => recordHasStatus(r, s));
       } else if (statusFilter === 'UNCERTAIN') {
-        matchesStatus = ['UNCERTAIN', 'PENDING_REVIEW'].includes(r.status);
+        matchesStatus = recordHasStatus(r, 'UNCERTAIN') || recordHasStatus(r, 'PENDING_REVIEW');
       } else {
-        matchesStatus = r.status === statusFilter;
+        matchesStatus = recordHasStatus(r, statusFilter as ReceivingStatus);
       }
 
       return matchesSearch && matchesStatus;
     });
   }, [records, searchTerm, statusFilter]);
 
-  const handleMetricCardClick = (filter: string) => {
-    setStatusFilter(filter);
-  };
+  const filtersActive = searchTerm !== '' || statusFilter !== 'ALL';
 
   return (
-    <div>
-      <div style={{ marginBottom: '1.25rem' }}>
-        <h2 style={{ fontSize: '1.25rem', fontWeight: 700, color: '#f8fafc' }}>
-          Receiving Operations Dashboard
-        </h2>
-        <p style={{ fontSize: '0.85rem', color: '#94a3b8' }}>
-          Real-time visibility across all supplier shipments, dock receipts, and discrepancy reconciliation.
-        </p>
+    <div className="stack">
+      <div className="page-header" style={{ marginBottom: 0 }}>
+        <div>
+          <div className="page-eyebrow">Receiving operations</div>
+          <h1 className="page-title">Dashboard</h1>
+          <p className="page-subtitle">
+            Every supplier receipt for this organisation, its condition on arrival and where it was routed.
+          </p>
+        </div>
+        <div className="page-actions">
+          <button type="button" className="btn-primary btn-lg" onClick={onNewInspection}>
+            <ScanSearch size={16} />
+            New inspection
+          </button>
+        </div>
       </div>
 
-      {/* KPI Metrics Banner */}
-      <MetricsBanner
-        records={records}
-        onFilterClick={handleMetricCardClick}
-        activeFilter={statusFilter}
+      <MetricsBanner records={records} onFilterClick={setStatusFilter} activeFilter={statusFilter} />
+
+      <InspectionHistory
+        entries={inspections}
+        onOpen={onOpenInspection}
+        limit={5}
+        title="Recent inspections"
       />
 
-      {/* Filter and Search Bar */}
-      <div
-        className="card-panel"
-        style={{ marginBottom: '1.25rem', padding: '1rem', backgroundColor: '#0f172a' }}
-      >
-        <div
-          style={{
-            display: 'flex',
-            gap: '1rem',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            flexWrap: 'wrap',
-          }}
-        >
-          {/* Search Input */}
-          <div style={{ position: 'relative', flex: '1 1 300px' }}>
-            <Search
-              size={16}
-              style={{
-                position: 'absolute',
-                left: '12px',
-                top: '50%',
-                transform: 'translateY(-50%)',
-                color: '#64748b',
-              }}
-            />
-            <input
-              type="text"
-              className="form-input"
-              style={{ paddingLeft: '2.4rem' }}
-              placeholder="Search by PO #, Supplier, SKU, Unit ID, Record ID..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-            />
+      {/* Receipts table */}
+      <section className="panel">
+        <div className="panel-header">
+          <div>
+            <div className="panel-title">
+              <Table2 size={16} />
+              Receipts
+              <span className="chip">{filteredRecords.length} of {records.length}</span>
+            </div>
+            <div className="panel-subtitle">Select a KPI tile above or use the filters to narrow the list.</div>
           </div>
 
-          {/* Status Dropdown */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <Filter size={16} style={{ color: '#94a3b8' }} />
+          <div className="row" style={{ flexWrap: 'wrap', gap: 8, flex: '1 1 420px', justifyContent: 'flex-end' }}>
+            <div style={{ position: 'relative', flex: '1 1 220px', maxWidth: 340 }}>
+              <Search
+                size={15}
+                style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-dim)' }}
+                aria-hidden="true"
+              />
+              <input
+                type="search"
+                className="form-input"
+                style={{ paddingLeft: 32 }}
+                placeholder="Search PO, supplier, SKU, unit…"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                aria-label="Search receipts"
+              />
+            </div>
             <select
               className="form-select"
-              style={{ minWidth: '180px' }}
+              style={{ width: 'auto', minWidth: 170 }}
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value)}
+              aria-label="Filter by status"
             >
-              <option value="ALL">All Receipts ({records.length})</option>
-              <option value="MATCHED">Matched (100%)</option>
-              <option value="SHORT_RECEIVED">Short Received</option>
-              <option value="OVER_RECEIVED">Over Received</option>
-              <option value="DISCREPANCIES">Quarantine Discrepancies</option>
-              <option value="WRONG_PRODUCT">Wrong Product / SKU</option>
-              <option value="DAMAGED">Physical Damage</option>
-              <option value="QUALITY_DISCREPANCY">Quality Flags</option>
-              <option value="UNCERTAIN">Uncertain / Review</option>
+              <option value="ALL">All statuses</option>
+              <option value="MATCHED">Matched</option>
+              <option value="SHORT_RECEIVED">Short received</option>
+              <option value="OVER_RECEIVED">Over received</option>
+              <option value="DISCREPANCIES">Quarantined (all)</option>
+              <option value="WRONG_PRODUCT">Wrong product / SKU</option>
+              <option value="DAMAGED">Damaged</option>
+              <option value="QUALITY_DISCREPANCY">Quality flag</option>
+              <option value="UNCERTAIN">Uncertain / review</option>
             </select>
-
-            {(searchTerm || statusFilter !== 'ALL') && (
+            {filtersActive && (
               <button
-                className="btn-secondary"
-                style={{ padding: '0.5rem 0.75rem', fontSize: '0.8rem' }}
+                type="button"
+                className="btn-ghost"
                 onClick={() => {
                   setSearchTerm('');
                   setStatusFilter('ALL');
                 }}
-                title="Reset filters"
               >
                 <RotateCcw size={14} />
                 Clear
@@ -153,159 +165,120 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             )}
           </div>
         </div>
-      </div>
-
-      {/* Receipts Data Table */}
-      <div className="card-panel">
-        <div className="card-panel-header">
-          <div className="card-panel-title">
-            <span>Inbound Receipts Queue</span>
-            <span
-              className="font-mono"
-              style={{
-                fontSize: '0.75rem',
-                backgroundColor: '#1e293b',
-                padding: '0.2rem 0.5rem',
-                borderRadius: '4px',
-                color: '#94a3b8',
-              }}
-            >
-              Showing {filteredRecords.length} of {records.length} records
-            </span>
-          </div>
-        </div>
 
         <div className="table-responsive">
           <table className="data-table">
             <thead>
               <tr>
-                <th>Record / Unit</th>
-                <th>PO Line</th>
-                <th>Supplier</th>
-                <th>Product / SKU</th>
-                <th style={{ textAlign: 'right' }}>Expected</th>
-                <th style={{ textAlign: 'right' }}>Received</th>
-                <th style={{ textAlign: 'center' }}>Difference</th>
+                <th>Record</th>
+                <th>Purchase order</th>
+                <th>Product</th>
+                <th className="num">Expected</th>
+                <th className="num">Received</th>
+                <th className="num">Diff</th>
                 <th>Status</th>
-                <th>Condition / Flags</th>
-                <th style={{ textAlign: 'center' }}>Actions</th>
+                <th>Condition</th>
+                <th>Captured</th>
+                <th style={{ textAlign: 'right' }}>Actions</th>
               </tr>
             </thead>
             <tbody>
               {filteredRecords.length === 0 ? (
                 <tr>
-                  <td colSpan={10} style={{ textAlign: 'center', padding: '2.5rem', color: '#64748b' }}>
-                    <AlertCircle size={28} style={{ margin: '0 auto 0.5rem auto', color: '#64748b' }} />
-                    No receiving records matched the current search or status filter.
+                  <td colSpan={10}>
+                    <EmptyState icon={Inbox} title="No matching receipts">
+                      {filtersActive ? 'Try clearing the search or status filter.' : 'Receipts recorded for this organisation will appear here.'}
+                    </EmptyState>
                   </td>
                 </tr>
               ) : (
                 filteredRecords.map((r) => {
+                  const conditionIssues = [
+                    r.cartonDamage !== 'none' ? `Carton: ${r.cartonDamage}` : null,
+                    r.unitDamage !== 'none' ? `Unit: ${r.unitDamage}` : null,
+                    ...r.qualityFlags.map((f) => f.replace(/_/g, ' ')),
+                  ].filter(Boolean) as string[];
+
                   return (
                     <tr key={r.recordId}>
-                      {/* Record & Unit */}
                       <td>
-                        <div className="font-mono" style={{ fontWeight: 600, color: '#38bdf8' }}>
-                          {r.recordId}
-                        </div>
-                        <div className="font-mono" style={{ fontSize: '0.725rem', color: '#64748b' }}>
-                          {r.unitId}
-                        </div>
+                        <div className="mono" style={{ fontWeight: 500, whiteSpace: 'nowrap' }}>{r.recordId}</div>
+                        <div className="mono xsmall dim" style={{ whiteSpace: 'nowrap' }}>{r.unitId}</div>
                       </td>
-
-                      {/* PO Number & Line */}
                       <td>
-                        <span className="font-mono" style={{ fontWeight: 600 }}>
-                          {r.poNumber}
-                        </span>
-                        <span style={{ fontSize: '0.75rem', color: '#94a3b8', marginLeft: '4px' }}>
-                          [L#{r.poLine}]
-                        </span>
+                        <div className="mono" style={{ whiteSpace: 'nowrap' }}>{r.poNumber}</div>
+                        <div className="xsmall dim truncate" style={{ maxWidth: 180 }} title={r.supplier}>
+                          Line {r.poLine} · {r.supplier}
+                        </div>
                       </td>
-
-                      {/* Supplier */}
-                      <td style={{ color: '#cbd5e1', fontSize: '0.825rem' }}>{r.supplier}</td>
-
-                      {/* Product & SKU */}
                       <td>
-                        <div style={{ fontWeight: 500, maxWidth: '200px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                          {r.productTitle}
-                        </div>
-                        <div className="font-mono" style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
-                          {r.sku}
-                        </div>
+                        <div className="truncate" style={{ maxWidth: 220 }} title={r.productTitle}>{r.productTitle}</div>
+                        <div className="mono xsmall dim">{r.sku}</div>
                       </td>
-
-                      {/* Expected Qty */}
-                      <td style={{ textAlign: 'right', fontFamily: 'var(--font-mono)', fontWeight: 600, color: '#94a3b8' }}>
-                        {r.qtyOrdered}
+                      <td className="num muted">{r.qtyOrdered}</td>
+                      <td className="num" style={{ fontWeight: 600 }} title={r.qtyReceived === null ? 'Not counted: verification not completed' : undefined}>
+                        {r.qtyReceived ?? '—'}
                       </td>
-
-                      {/* Received Qty */}
-                      <td style={{ textAlign: 'right', fontFamily: 'var(--font-mono)', fontWeight: 700, color: '#f8fafc' }}>
-                        {r.qtyReceived}
+                      <td className="num">
+                        {r.qtyDifference === null ? (
+                          <span className="dim" title="Not counted: verification not completed">—</span>
+                        ) : (
+                          <span
+                            className={`delta-tag ${
+                              r.qtyDifference === 0 ? 'delta-matched' : r.qtyDifference < 0 ? 'delta-short' : 'delta-over'
+                            }`}
+                            style={{ fontSize: '0.76rem' }}
+                          >
+                            {r.qtyDifference > 0 ? `+${r.qtyDifference}` : r.qtyDifference}
+                          </span>
+                        )}
                       </td>
-
-                      {/* Difference */}
-                      <td style={{ textAlign: 'center' }}>
-                        <span
-                          className={`delta-tag ${
-                            r.qtyDifference === 0
-                              ? 'delta-matched'
-                              : r.qtyDifference < 0
-                              ? 'delta-short'
-                              : 'delta-over'
-                          }`}
-                          style={{ fontSize: '0.775rem' }}
-                        >
-                          {r.qtyDifference >= 0 ? `+${r.qtyDifference}` : r.qtyDifference}
-                        </span>
-                      </td>
-
-                      {/* Status */}
                       <td>
                         <DiscrepancyBadge status={r.status} size="sm" />
+                        {recordDiscrepancies(r)
+                          .filter((d) => d !== r.status)
+                          .map((d) => (
+                            <div key={d} style={{ marginTop: 3 }} data-testid="additional-discrepancy">
+                              <DiscrepancyBadge status={d} size="sm" />
+                            </div>
+                          ))}
                         {r.operatorOverride && (
-                          <div style={{ fontSize: '0.7rem', color: '#f59e0b', marginTop: '2px' }}>
-                            [Overridden: {r.operatorOverride.operatorId}]
+                          <div className="xsmall" style={{ color: 'var(--warn-text)', marginTop: 3 }}>
+                            Overridden by {r.operatorOverride.operatorId}
                           </div>
                         )}
                       </td>
-
-                      {/* Damage & Flags */}
-                      <td style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
-                        {r.cartonDamage !== 'none' && (
-                          <div>Carton: <strong style={{ color: '#f87171' }}>{r.cartonDamage}</strong></div>
-                        )}
-                        {r.unitDamage !== 'none' && (
-                          <div>Unit: <strong style={{ color: '#f87171' }}>{r.unitDamage}</strong></div>
-                        )}
-                        {r.qualityFlags.length > 0 && (
-                          <div style={{ color: '#e9d5ff' }}>Flags: {r.qualityFlags.join(', ')}</div>
-                        )}
-                        {r.cartonDamage === 'none' && r.unitDamage === 'none' && r.qualityFlags.length === 0 && (
-                          <span style={{ color: '#34d399' }}>Pristine</span>
+                      <td className="small">
+                        {r.pendingReason ? (
+                          <span style={{ color: 'var(--warn-text)' }} data-testid="pending-reason">
+                            Verification not completed: {r.pendingReason}
+                          </span>
+                        ) : conditionIssues.length === 0 ? (
+                          <span style={{ color: 'var(--ok-text)' }}>No issues</span>
+                        ) : (
+                          <span style={{ color: 'var(--bad-text)', textTransform: 'capitalize' }}>{conditionIssues.join(' · ')}</span>
                         )}
                       </td>
-
-                      {/* Actions */}
-                      <td style={{ textAlign: 'center' }}>
-                        <div style={{ display: 'inline-flex', gap: '0.35rem' }}>
+                      <td className="small muted" style={{ whiteSpace: 'nowrap' }}>{formatDateTime(r.capturedAt)}</td>
+                      <td style={{ textAlign: 'right' }}>
+                        <div style={{ display: 'inline-flex', gap: 4 }}>
                           <button
-                            className="btn-secondary"
-                            style={{ padding: '0.35rem 0.55rem', fontSize: '0.75rem' }}
+                            type="button"
+                            className="btn-ghost btn-icon"
                             onClick={() => setSelectedRecordForContract(r)}
-                            title="View Cross-Pod Contract JSON"
+                            title="View cross-pod evidence contract"
+                            aria-label={`View evidence contract for ${r.recordId}`}
                           >
-                            <FileCode size={14} />
+                            <FileCode size={15} />
                           </button>
                           <button
-                            className="btn-secondary"
-                            style={{ padding: '0.35rem 0.55rem', fontSize: '0.75rem' }}
+                            type="button"
+                            className="btn-ghost btn-icon"
                             onClick={() => setSelectedRecordForOverride(r)}
-                            title="Override Verdict"
+                            title="Override verdict"
+                            aria-label={`Override verdict for ${r.recordId}`}
                           >
-                            <Edit3 size={14} />
+                            <Edit3 size={15} />
                           </button>
                         </div>
                       </td>
@@ -316,9 +289,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </tbody>
           </table>
         </div>
-      </div>
+      </section>
 
-      {/* Contract Modal */}
       {selectedRecordForContract && (
         <CrossPodExportModal
           record={selectedRecordForContract}
@@ -326,7 +298,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         />
       )}
 
-      {/* Override Modal */}
       {selectedRecordForOverride && (
         <OverrideModal
           record={selectedRecordForOverride}

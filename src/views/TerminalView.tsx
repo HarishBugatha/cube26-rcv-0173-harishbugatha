@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { PurchaseOrderLine, ReceivingRecord, TenantId } from '../types/receiving';
 import { ReceivingForm, FormLiveValues } from '../components/ReceivingForm';
 import { ComparisonCard } from '../components/ComparisonCard';
-import { compareShipment } from '../services/comparisonEngine';
+import { compareShipment, generateContentHash } from '../services/comparisonEngine';
+import { nextUnitId } from '../services/dataService';
 import { CrossPodExportModal } from '../components/CrossPodExportModal';
 import { OverrideModal } from '../components/OverrideModal';
 
@@ -136,9 +137,11 @@ export const TerminalView: React.FC<TerminalViewProps> = ({
                 operatorId,
               }}
               onExportContract={() => {
+                // Preview of the deterministic unit ID this receipt would be assigned
+                const previewUnitId = nextUnitId();
                 const sampleRecord: ReceivingRecord = {
                   recordId: `RCV-LIVE-PREVIEW`,
-                  unitId: `UNIT-LIVE`,
+                  unitId: previewUnitId,
                   orgId: tenantId,
                   poNumber: activePO.poNumber,
                   poLine: activePO.poLine,
@@ -161,16 +164,19 @@ export const TerminalView: React.FC<TerminalViewProps> = ({
                   unitDamage: liveValues.unitDamage,
                   qualityFlags: liveValues.qualityFlags,
                   photoRefs: [
-                    'fixtures/receiving/UNIT-LIVE_pallet.jpg',
-                    'fixtures/receiving/UNIT-LIVE_carton.jpg',
+                    `fixtures/receiving/${previewUnitId}_pallet.jpg`,
+                    `fixtures/receiving/${previewUnitId}_carton.jpg`,
                   ],
                   operatorId,
                   capturedAt: new Date().toISOString(),
                   status: liveComparison.status,
+                  discrepancies: liveComparison.discrepancies,
                   qtyDifference: liveComparison.qtyDifference,
                   disposition: liveComparison.disposition,
-                  contentHash: 'sha256-live-preview-contract-hash',
+                  contentHash: '',
                 };
+                // Preview only (not stored or chained): real SHA-256 of the previewed content
+                sampleRecord.contentHash = generateContentHash(sampleRecord);
                 setActiveExportRecord(sampleRecord);
               }}
             />

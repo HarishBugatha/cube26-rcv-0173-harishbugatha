@@ -143,7 +143,7 @@ export const OverrideModal: React.FC<OverrideModalProps> = ({
             </div>
 
             <div style={{ fontSize: '0.75rem', color: '#64748b' }}>
-              Authorized by active operator: <strong style={{ color: '#cbd5e1' }}>{activeOperatorId}</strong>. A cryptographic hash will be recalculated and anchored to the audit trail.
+              Authorized by active operator: <strong style={{ color: '#cbd5e1' }}>{activeOperatorId}</strong>. The record's SHA-256 content hash is recalculated and an override entry (original verdict, new verdict, reason) is appended to the audit hash chain.
             </div>
           </div>
 

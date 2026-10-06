@@ -52,6 +52,8 @@ export interface OperatorOverride {
   reason: string;
   operatorId: string;
   timestamp: string;
+  /** Every discrepancy the record had before the override (set by dataService). */
+  originalDiscrepancies?: ReceivingStatus[];
 }
 
 export interface IndividualCheck {
@@ -76,6 +78,8 @@ export interface ComparisonResult {
   disposition: DispositionAction;
   summaryExplanation: string;
   checks: IndividualCheck[];
+  /** Every discrepancy present, in priority order; status is the first (or MATCHED when empty). */
+  discrepancies: ReceivingStatus[];
 }
 
 export interface ReceivingRecord {
@@ -97,10 +101,11 @@ export interface ReceivingRecord {
   unitsPerCartonOrdered: number;
   qtyOrdered: number;
   
-  // Actual received
-  cartonsReceived: number;
-  unitsPerCartonCounted: number;
-  qtyReceived: number;
+  // Actual received (null on a PENDING_REVIEW record whose verification did not complete:
+  // the count is unknown and is not invented)
+  cartonsReceived: number | null;
+  unitsPerCartonCounted: number | null;
+  qtyReceived: number | null;
   receivedSku: string;
   
   // Inspection findings
@@ -114,11 +119,54 @@ export interface ReceivingRecord {
   operatorId: string;
   capturedAt: string;
   status: ReceivingStatus;
-  qtyDifference: number;
+  /** All discrepancies found (e.g. SHORT_RECEIVED + QUALITY_DISCREPANCY); status is the primary one. */
+  discrepancies?: ReceivingStatus[];
+  qtyDifference: number | null;
   disposition: DispositionAction;
   notes?: string;
+  /** Why the record is PENDING_REVIEW (verification not completed), shown to the operator. */
+  pendingReason?: string;
   operatorOverride?: OperatorOverride;
   contentHash: string; // SHA-256 evidence anchor
+}
+
+/**
+ * One entry in a tenant's append-only audit hash chain.
+ * entryHash = SHA-256(canonical JSON of every other field), and prevHash is the
+ * previous entry's entryHash, so altering any earlier entry breaks every later link.
+ */
+export interface AuditChainEntry {
+  index: number;
+  orgId: TenantId;
+  eventType: 'RECORD_CREATED' | 'OPERATOR_OVERRIDE';
+  recordId: string;
+  contentHash: string;
+  prevHash: string;
+  entryHash: string;
+  override?: OperatorOverride;
+}
+
+export interface IntegrityFailure {
+  kind:
+    | 'ENTRY_HASH_MISMATCH'
+    | 'BROKEN_LINK'
+    | 'RECORD_CONTENT_MISMATCH'
+    | 'RECORD_NOT_IN_CHAIN'
+    | 'RECORD_MISSING'
+    | 'STORAGE_UNREADABLE';
+  index?: number;
+  recordId?: string;
+  detail: string;
+}
+
+export interface IntegrityReport {
+  ok: boolean;
+  orgId: TenantId;
+  entriesChecked: number;
+  recordsChecked: number;
+  headHash: string;
+  failures: IntegrityFailure[];
+  checkedAt: string;
 }
 
 export interface CrossPodEvidenceContract {
@@ -141,12 +189,13 @@ export interface CrossPodEvidenceContract {
   };
   quantity: {
     cartonsOrdered: number;
-    cartonsReceived: number;
+    /** null = not counted (pending record; verification did not complete) */
+    cartonsReceived: number | null;
     unitsPerCartonOrdered: number;
-    unitsPerCartonCounted: number;
+    unitsPerCartonCounted: number | null;
     qtyOrdered: number;
-    qtyReceived: number;
-    qtyDifference: number;
+    qtyReceived: number | null;
+    qtyDifference: number | null;
   };
   condition: {
     cartonDamage: DamageGrade;
@@ -155,6 +204,7 @@ export interface CrossPodEvidenceContract {
   };
   verdict: {
     finalStatus: ReceivingStatus;
+    discrepancies: ReceivingStatus[];
     disposition: DispositionAction;
     isOverridden: boolean;
     overrideDetails?: OperatorOverride;
@@ -280,6 +330,34 @@ export interface SecurityAuditSummary {
   textSanitizationApplied: boolean;
 }
 
+export interface VerificationIssue {
+  stage: string; // PROSECUTOR | DEFENDER | BLIND_VERIFIER | CONFIGURATION | PIPELINE
+  kind: string; // TIMEOUT | API_ERROR | INCOMPLETE_RESPONSE | REFUSED | NOT_CONFIGURED | INSUFFICIENT_EVIDENCE | PIPELINE_ERROR
+  reason: string;
+}
+
+export interface VerificationStatus {
+  status: 'COMPLETE' | 'INCOMPLETE';
+  mode: 'SCENARIO_FIXTURE' | 'VISION_MODEL' | 'NONE';
+  model?: string;
+  reasons: VerificationIssue[];
+}
+
+/** Physical features the DEBATE engine generated its claims from (server/debateEngine.js resolveObservedFeatures). */
+export interface ObservedFeatures {
+  /**
+   * SCENARIO_METADATA = scripted test fixture; VISION_MODEL = reported by the vision model
+   * (null values = not determinable from the photo); NONE = nothing observed.
+   */
+  source: 'SCENARIO_METADATA' | 'VISION_MODEL' | 'NONE';
+  expectedQuantity: number;
+  itemsDetected: number | null;
+  detectedSku: string | null;
+  detectedVariant: string | null;
+  packagingStatus: string | null;
+  missingComponents: string[];
+}
+
 export interface DebateInspectionReport {
   inspectionId: string;
   timestamp: string;
@@ -289,6 +367,11 @@ export interface DebateInspectionReport {
   vendor: string;
   expectedSku: string;
   expectedQuantity: number;
+  observedFeatures?: ObservedFeatures;
+  /** Whether visual verification completed; INCOMPLETE results are UNCERTAIN and recorded as pending. */
+  verification?: VerificationStatus;
+  /** Organisation that owns this report on the server (report cache tenant check). */
+  orgId?: TenantId;
   finalVerdict: PRDVerdict;
   recommendedAction: string;
   decisionRationale: string;

@@ -1,185 +1,188 @@
-# Architecture & Design Document: PRD-3 DEBATE Receiving Manager (01 · Receiving)
+# Architecture: Receiving Manager (01 · Receiving), PRD-3 DEBATE
 
-**Project:** CUBE Buildathon 2026 — Commerce Context Stream  
-**Stage:** Step 01 of 05 (Inbound Dock & Condition on Arrival)  
-**Author:** Harish Bugatha  
-**Repository Fork:** `cube26-rcv-0173-harishbugatha`  
-**Specification:** PRD-3 DEBATE — Adversarial Multi-Role Verification with Strict Physical Crop Isolation  
+**Project:** CUBE Buildathon 2026, Commerce Context stream
+**Stage:** Step 01 of 05, supplier delivery / condition on arrival
+**Author:** Harish Bugatha
+**Repository fork:** `cube26-rcv-0173-harishbugatha`
+
+This document describes what the current code does. Where a design intent is not yet backed by an
+implementation, that is stated explicitly.
 
 ---
 
-## 1. Architectural Philosophy: Evidence-Backed Verification
+## 1. Summary
 
-Conventional AI physical inspection systems rely on single-pass classification, producing probabilistic guesses prone to hallucination, ambient lighting bias, and unverified assumptions.
+| Area | Current implementation |
+|---|---|
+| Inspection engine | `server/debateEngine.js`: three roles (Prosecutor, Defender, Blind Verifier). For uploaded photos each role is a separate Claude API call (`server/visionProvider.js`, default `claude-opus-5-5`, JSON-schema output, per-call timeout). For the 10 scenario fixtures the roles are scripted, deterministic code. |
+| Observations | Uploaded photos: reported by the vision model (`source: VISION_MODEL`; `null` = not determinable). Scenario fixtures: metadata in `server/scenarios.js`. |
+| No model / model failure | Missing configuration, timeout, API error, refusal or incomplete response → `UNCERTAIN` with `verification.status: INCOMPLETE` and the reasons. Never reported as a match; recordable only as `PENDING_REVIEW`. |
+| Blind Verifier isolation | Vision path: receives exactly one crop plus a fixed task text; no claim, PO values or other roles' reasoning (tested by inspecting the request). |
+| Classification | `compareShipment` (`src/services/comparisonEngine.ts`): deterministic arithmetic and rules. |
+| Storage | Client-side data service (`src/services/dataService.ts`), persisted to browser `localStorage`. |
+| Integrity | SHA-256 content hash per record and a per-organisation hash chain, plus integrity verification. Images and crops are hashed with SHA-256 on the server. |
+| UI | React 19 + Vite (`src/`), served by Express from `dist/`. |
 
-The **PRD-3 DEBATE Architecture** introduces an **Adversarial Multi-Role Multi-Perspective Verification Engine** combined with **Cryptographically Anchored Physical ROI Isolation**:
+---
+
+## 2. Inspection pipeline (PRD-3 DEBATE)
 
 ```text
-┌───────────────────────────────────────────────────────────────────────────────┐
-│                           PHYSICAL INTAKE / UPLOAD                            │
-│           (Purchase Order Metadata + Raw Receiving Photographs)               │
-└──────────────────────────────────────┬────────────────────────────────────────┘
-                                       │
-                                       ▼
-┌───────────────────────────────────────────────────────────────────────────────┐
-│                     LAYER 1: SECURITY PREPROCESSING PIPELINE                  │
-│   • Upload MIME whitelist validation (JPEG, PNG, WEBP, TIFF)                  │
-│   • File size bounded at 15MB max                                             │
-│   • Automated EXIF, GPS & IPTC metadata stripping (Sharp)                     │
-│   • Cryptographic SHA-256 master hashing (Raw & Clean Buffers)                │
-│   • Untrusted text/OCR sanitization (Prompt injection neutralization)         │
-└──────────────────────────────────────┬────────────────────────────────────────┘
-                                       │
-                                       ▼
-┌───────────────────────────────────────────────────────────────────────────────┐
-│                     LAYER 2: FEATURE & CLAIM EXTRACTION                       │
-│   • PO line item vs Extracted physical feature comparison                     │
-│   • Identity verification (SKU, barcode, serial numbers)                      │
-│   • Physical count verification vs PO quantity (Shortage / Overage)           │
-│   • Product variant specification check (Color, storage, revision)            │
-│   • Packaging integrity verification (Crushed corners, water stains, tears)   │
-│   • Modular kit completeness verification (Missing accessories in cavities)   │
-│   • Normalized Bounding Box ROI generation [ymin, xmin, ymax, xmax]           │
-└──────────────────────────────────────┬────────────────────────────────────────┘
-                                       │
-                                       ▼
-┌───────────────────────────────────────────────────────────────────────────────┐
-│                   LAYER 3: 3-ROLE ADVERSARIAL DEBATE PIPELINE                 │
-│                                                                               │
-│  ┌──────────────────────┐ ┌──────────────────────┐ ┌────────────────────────┐ │
-│  │   ROLE 1: PROSECUTOR │ │   ROLE 2: DEFENDER   │ │ ROLE 3: BLIND VERIFIER │ │
-│  │   (Defect Advocate)  │ │ (Adversarial Counter)│ │ (Strict Crop Isolation)│ │
-│  │                      │ │                      │ │                        │ │
-│  │ • Formulates defect  │ │ • Full context scan  │ │ • Cropped ROI ONLY     │ │
-│  │   thesis & severity  │ │ • Identifies optical │ │ • ZERO PO context      │ │
-│  │ • P_pros score       │ │   glare/reflections  │ │ • ZERO claim text      │ │
-│  │ • Evidence focus ROI │ │ • P_def plausibility │ │ • Unbiased observation │ │
-│  └──────────┬───────────┘ └──────────┬───────────┘ └───────────┬────────────┘ │
-└─────────────┼────────────────────────┼─────────────────────────┼──────────────┘
-              │                        │                         │
-              └────────────────────────┼─────────────────────────┘
-                                       │
-                                       ▼
-┌───────────────────────────────────────────────────────────────────────────────┐
-│               LAYER 4: COMPARATOR & DETERMINISTIC CLASSIFICATION              │
-│                                                                               │
-│   • VERIFIED   ◄── (Blind Verifier confirms anomaly + P_pros >= 0.75)         │
-│   • CHALLENGED ◄── (Blind Verifier flags glare/low confidence or conflict)    │
-│   • REJECTED   ◄── (Defender refutes or Blind Verifier confirms normal)       │
-└──────────────────────────────────────┬────────────────────────────────────────┘
-                                       │
-                                       ▼
-┌───────────────────────────────────────────────────────────────────────────────┐
-│                     LAYER 5: DECISION SYNTHESIS & AUDIT                       │
-│                                                                               │
-│   • IF ANY VERIFIED   ──► EXCEPTION (Quarantine & Hold for Vendor Claim)      │
-│   • ELSE IF CHALLENGED──► UNCERTAIN (Manual Dock Inspector Review Required)   │
-│   • ELSE              ──► ACCEPT    (Approved for Inventory Intake)           │
-│                                                                               │
-│   • Interactive Evidence Graph generated                                      │
-│   • SHA-256 cryptographic chain of custody anchored                           │
-│   • Exportable JSON & printable HTML audit dossiers                           │
-│   • Cross-Pod Contract emitted (Feeds 02 Prep and 05 Recovery)                │
-└───────────────────────────────────────────────────────────────────────────────┘
+Photo + PO ─► Security preprocessing ─► Observed features ─► Candidate findings
+                                              │                     │
+                                     (none for uploads)             ▼
+                                              │       Prosecutor / Defender / Blind Verifier
+                                              │                     │
+                                              ▼                     ▼
+                                VISUAL_VERIFICATION_UNAVAILABLE   Classification per finding
+                                   (CHALLENGED)                   VERIFIED / CHALLENGED / REJECTED
+                                              └──────────┬──────────┘
+                                                         ▼
+                                   Verdict: EXCEPTION > UNCERTAIN > ACCEPT
+                                                         ▼
+                        Annotated image · evidence graph · JSON / HTML report
 ```
 
----
+### 2.1 Security preprocessing (`server/security.js`)
+- Upload checks: MIME whitelist (JPEG, PNG, WEBP, TIFF) and 15 MB limit for multipart uploads.
+  *Known gap:* the base64 `imageDataUrl` fallback on `/api/verify/custom` skips these checks.
+- Metadata stripping: the image is re-encoded with Sharp, which drops EXIF/GPS metadata.
+- SHA-256 of the raw upload bytes and of the sanitised image (`crypto.createHash('sha256')`).
+- PO text fields are sanitised before use (`sanitizeExtractedText`).
+- Pipeline calls are wrapped in a 25 s timeout. On timeout or error the API returns an error. No pending
+  record is created by the server. For uploads, a pipeline timeout/error instead returns a fail-open
+  `UNCERTAIN` report (`verification.status: INCOMPLETE`, stage `PIPELINE`), which the UI can record as
+  `PENDING_REVIEW`. Reports are cached per organisation and returned only to the owner (`X-Org-Id`).
 
-## 2. Verification Roles & Blind Isolation Protocol
+### 2.2 Observed features
+`resolveObservedFeatures(po, scenarioMeta)` returns the features findings are generated from. It is
+also included in the report as `observedFeatures`, so records use exactly the same values.
+- Scenario: `source: 'SCENARIO_METADATA'` with the scripted values.
+- Upload (no vision model): `source: 'NONE'`, every observed value `null`. PO values are never assumed
+  to be observations. Client-supplied `visualMeta` on the upload route is ignored.
 
-### Role 1: Prosecutor (Defect Advocate)
-The Prosecutor represents the receiving facility's quality assurance mandate. It evaluates incoming PO line items against physical evidence to identify non-compliance:
-- Short quantity deficits or unauthorized overages.
-- Barcode / SKU mismatches.
-- Packaging trauma (corner crushes, damp water tide stains, breached security tape).
-- Missing accessories in pre-molded cavities.
-- Generates a quantified defect confidence score $P_{\text{pros}} \in [0.0, 1.0]$.
+### 2.3 Candidate findings
+Generated by comparing observed features with the PO: quantity shortage/overage, ambiguous label,
+SKU mismatch, variant mismatch, crushed/water-damaged/torn packaging, missing components. If nothing
+differs, one `NOMINAL_COMPLIANCE` finding is created. Each finding has a normalised bounding box.
 
-### Role 2: Defender (Adversarial Counter-Analysis)
-The Defender is an adversarial agent instructed to aggressively seek exculpatory explanations using the full image context:
-- Identifies optical camera flash glare versus genuine text mismatches.
-- Differentiates harmless cardboard folds from structural puncture damage.
-- Calibrates ambient lighting color shifts versus actual variant mismatches.
-- Evaluates multi-layer packaging geometry explanations.
-- Assigns a defense plausibility score $P_{\text{def}} \in [0.0, 1.0]$.
+### 2.4 The three roles
+All three are deterministic code paths selected by finding type. Their text and confidence values are
+scripted, not generated by a model.
 
-### Role 3: Blind Verifier (Strict Isolation Protocol)
-The Blind Verifier operates under strict isolation:
-1. **Sub-pixel ROI Extraction**: Sharp extracts only the pixel bounding box `[ymin, xmin, ymax, xmax]` from the sanitized image buffer.
-2. **Cryptographic Crop Hashing**: A unique SHA-256 hash is computed for the crop.
-3. **Context-Free Prompt**:
-   ```text
-   [STRICT ISOLATION PROTOCOL]
-   Analyze this cropped image patch in complete isolation.
-   Do not make assumptions about purchase orders, catalog numbers, or previous inspector claims.
-   Objectively describe:
-   1. Physical objects and surface textures visible in this image patch.
-   2. Any physical anomalies, structural fractures, stains, tears, vacant cavities, or text strings.
-   3. Your level of observational confidence (0.0 to 1.0).
-   ```
-4. **Context Leakage Prevention**: The Blind Verifier is never provided PO numbers, expected quantities, claim texts, or prior model outputs.
-
----
-
-## 3. Objective Comparator & Deterministic Classification Rules
-
-| Classification | Condition | Pipeline Disposition |
+| Role | Purpose | What the code does today |
 |---|---|---|
-| **`VERIFIED`** | Blind Verifier independently confirms physical anomaly + $P_{\text{pros}} \ge 0.75$ | Supports `EXCEPTION` |
-| **`CHALLENGED`** | Blind Verifier confidence $< 0.70$, specular glare detected, or Defender raises valid artifact challenge | Triggers `UNCERTAIN` |
-| **`REJECTED`** | Defender disproves defect or Blind Verifier confirms nominal pristine condition | Claim discarded |
+| **Prosecutor** | States the case that the defect exists | Scripted arguments and a confidence per finding type. |
+| **Defender** | Looks for innocent explanations (glare, folds, lighting) | Scripted counter-arguments, a stance (`CONCEDE_DEFECT`, `VALID_CHALLENGE`, …) and a plausibility score. |
+| **Blind Verifier** | Independent check of the cropped region only | Sharp extracts the crop and computes its SHA-256; the crop and an isolation prompt (no PO, SKU or claim text) are stored with the finding. Its observations are **selected by finding type in code**. No model receives the crop, so the isolation is the intended contract for a future vision model, not an enforced property today. |
 
-### Final Decision Logic:
-$$\text{Verdict} = \begin{cases} 
-\mathbf{EXCEPTION} & \text{if } \exists c \in \text{Claims} : c.\text{status} = \text{VERIFIED} \land c.\text{type} \neq \text{NOMINAL} \\ 
-\mathbf{UNCERTAIN} & \text{else if } \exists c \in \text{Claims} : c.\text{status} = \text{CHALLENGED} \\ 
-\mathbf{ACCEPT} & \text{otherwise} 
-\end{cases}$$
+### 2.5 Classification and verdict (unchanged decision rules)
+- `REJECTED`: the Blind Verifier reports no defect (nominal finding).
+- `CHALLENGED`: ambiguous label, Blind Verifier confidence < 0.70, or the Defender raises a valid challenge.
+- `VERIFIED`: Blind Verifier confidence ≥ 0.75 and Prosecutor confidence ≥ 0.75.
+- Verdict: `EXCEPTION` if any non-nominal finding is `VERIFIED`, else `UNCERTAIN` if any is `CHALLENGED`,
+  else `ACCEPT`.
 
----
+The no-vision finding is created directly as `CHALLENGED` (all role outputs "Not run", confidence 0),
+so these same rules produce `UNCERTAIN`.
 
-## 4. Evidence Graph Data Model
-
-The Evidence Graph forms an immutable, tamper-evident audit tree:
-
-```mermaid
-graph TD
-    V["Decision Verdict Node (EXCEPTION / UNCERTAIN / ACCEPT)"] --> C1["Claim Node: CLM-01"]
-    V --> C2["Claim Node: CLM-02"]
-    
-    C1 --> P1["Prosecutor Node: Charge & P_pros"]
-    C1 --> D1["Defender Node: Stance & Plausibility"]
-    C1 --> B1["Blind Verifier Node: Isolated Crop Observations"]
-    
-    B1 --> CRP1["Image Crop ROI Node: Coordinates & Base64"]
-    CRP1 --> MSH["Master Image SHA-256 Anchor"]
-    
-    C2 --> P2["Prosecutor Node"]
-    C2 --> D2["Defender Node"]
-    C2 --> B2["Blind Verifier Node"]
-    B2 --> CRP2["Image Crop ROI Node"]
-    CRP2 --> MSH
-```
+### 2.6 Evidence graph
+Built by `buildEvidenceGraph`: verdict node → one node per finding → Prosecutor, Defender and Blind
+Verifier nodes → image-crop node (crop SHA-256) → source-image node (sanitised and raw SHA-256). It is
+a data structure for traceability; it is not itself stored immutably.
 
 ---
 
-## 5. Security & Safety Architecture
+## 3. From inspection to receiving record
 
-1. **Upload Validation**: Enforces strict MIME whitelist (`image/jpeg`, `image/png`, `image/webp`, `image/tiff`) and 15MB file size limit.
-2. **Metadata Sanitization**: All EXIF tags (including GPS coordinates, camera serials, timestamps) are stripped via Sharp buffer re-encoding before data persistence.
-3. **Cryptographic Checksums**: Raw uploaded bytes, sanitized image buffers, and individual visual crops each carry verifiable SHA-256 signatures.
-4. **Prompt Injection Defense**: Text extracted from physical labels is treated as untrusted input and sanitized against markdown escapes, HTML injections, and template delimiters before inclusion in model prompts.
-5. **Fail-Safe Timeouts**: Verification calls are bounded by 25-second execution timers to prevent dock line blocking.
+`buildRecordFromInspection` (`src/services/inspectionRecord.ts`) is the single mapping:
+- expected values come from the PO snapshot the inspection ran against;
+- received count, SKU, etc. come from `report.observedFeatures`;
+- only `VERIFIED` findings become discrepancies (`missing_components`, `wrong_variant`, carton damage,
+  SKU mismatch); `CHALLENGED` findings become `uncertain`; `REJECTED` are ignored;
+- status, difference and disposition are computed by `compareShipment`;
+- inspections with no visual observations are refused (no received count is invented).
+
+Example (short scenario): expected 12, received 9, difference −3, status `SHORT_RECEIVED`,
+discrepancies `[SHORT_RECEIVED, QUALITY_DISCREPANCY]` (missing component), disposition quarantine.
 
 ---
 
-## 6. Buildathon Compliance & Multi-Tenancy
+## 4. Classification rules (`compareShipment`)
 
-### Rule 1: Tenancy Isolation
-- Strict Row-Level Security for `org_demo_alpha` and `org_demo_bravo`. Zero cross-tenant leakage.
+- `difference = received − expected`.
+- Every discrepancy present is collected in `discrepancies`, in priority order:
+  `WRONG_PRODUCT` → `SHORT_RECEIVED` / `OVER_RECEIVED` → `DAMAGED` → `QUALITY_DISCREPANCY` → `UNCERTAIN`.
+- `status` is the first entry (or `MATCHED`). A quantity shortage or surplus therefore stays the primary
+  status even when a quality flag or damage is also present, and those remain in `discrepancies`,
+  `qualityFlags` and `cartonDamage` / `unitDamage`.
+- Disposition is the most protective action required by any discrepancy:
+  `HOLD_QUARANTINE_RECOVERY` (wrong product, damage, quality) → `SUPERVISOR_REVIEW` (uncertain) →
+  `ACCEPT_WITH_SHORTAGE` (short) / `HOLD_SURPLUS` (over) → `ACCEPT_TO_PREP`.
 
-### Rule 2: Cross-Pod Evidence Contract
-- Completed receiving records output standard JSON payloads binding physical evidence, claims, crop hashes, and verdicts to `unit_id`, feeding Step 02 Prep and Step 05 Recovery.
+---
 
-### Rule 3: Operator Overrides Are Preserved as Data
-- When a dock supervisor overrides an automated decision, the original verdict, override verdict, operator ID, timestamp, and mandatory justification are stored in the tamper-evident audit log.
+## 5. Data, identifiers and integrity
+
+### 5.1 Records and tenancy
+- Records and PO lines are seeded from `data/receiving_sample.csv` (dummy data) and held by the data service.
+- Every read and write is filtered by organisation (`org_demo_alpha`, `org_demo_bravo`); cross-tenant
+  lookups return nothing (tested). This is application-level filtering, not database row-level security.
+
+### 5.2 Unit IDs
+The sample data uses `UNIT-0001`…`UNIT-0100` as the shared cross-pod join key. `addReceivingRecord`
+always assigns the next number in the same format (`UNIT-0101`, …), so IDs are deterministic and unique.
+Manual receipts use the matching record ID (`RCV-0101`). Recorded inspections use `RCV-<inspection id>`.
+
+### 5.3 SHA-256 content hash
+`generateContentHash(record)` = `sha256-01rcv-` + SHA-256 (hex) of the record's canonical JSON (keys
+sorted, every field except `contentHash`). A synchronous SHA-256 implementation (`src/services/sha256.ts`)
+is used so the same code runs in the browser and in tests; it is tested against Node's `crypto`.
+
+### 5.4 Hash chain
+One append-only chain per organisation. Each entry stores `index`, `eventType` (`RECORD_CREATED` or
+`OPERATOR_OVERRIDE`), `recordId`, the record's `contentHash`, `prevHash` (the previous entry's hash, or
+64 zeros for the first entry) and, for overrides, the override details. `entryHash` = SHA-256 of the
+entry's canonical JSON.
+
+### 5.5 Integrity verification
+`verifyIntegrity(org)` recomputes every entry hash, checks every `prevHash` link, re-hashes every stored
+record against the latest chain entry for it, and reports records missing from storage or from the chain,
+and unreadable storage. The Audit Trail shows PASS/FAIL and the individual failures.
+
+### 5.6 Persistence
+Records, PO lines and chains are written to `localStorage` after every change and loaded back unchanged
+on reload (not re-hashed). If stored data is tampered with, verification fails. If it cannot be parsed,
+nothing is loaded, saving is blocked so the evidence is not overwritten, and the failure is reported.
+Only an explicit, confirmed "Reset demo data" action discards it and re-seeds from the CSV.
+
+### 5.7 What this does not guarantee
+This is tamper **detection**, not immutability. The chain lives in the same browser storage as the
+records, so someone with write access could rebuild the entire chain consistently. There is no external
+anchoring, signing key or server-side copy.
+
+---
+
+## 6. Operator overrides
+Overrides require a justification of at least 8 characters. The record keeps the original status, the
+full list of original discrepancies, the new status, the operator, a timestamp and the reason. The change
+is re-hashed and appended to the chain as an `OPERATOR_OVERRIDE` entry.
+
+## 7. Cross-pod evidence contract
+`buildEvidenceContract(record)` emits JSON with PO reference, product identity, quantities, condition,
+verdict (primary status, all discrepancies, disposition, override details) and evidence (photo
+references, operator, timestamp, content hash) for 02 Prep and 05 Recovery.
+
+## 8. Testing
+`npm test` runs 103 Vitest tests (including the vision fail-open, Blind Verifier isolation and report tenant-isolation suites): comparison rules (including combined short/over + quality cases), the
+10 DEBATE scenarios, record consistency across report / graph / record, no-vision behaviour, SHA-256
+against Node `crypto`, hash-chain linking, tamper and deletion detection, persistence across reloads,
+unit-ID allocation, preset labels, tenancy isolation and input validation.
+
+## 9. Known limitations
+- The vision path is tested only with a test double for the API client; real-photo accuracy is unmeasured.
+  Scenario outcomes reflect scripted metadata.
+- No held-out evaluation set yet.
+- Rule 5 (authoritative rule lookup) is not implemented (out of scope for this stage).
+- Tenancy on the server is asserted by the client (`X-Org-Id`), not authenticated.
+- Base64 upload path bypasses MIME/size validation; CORS is open.

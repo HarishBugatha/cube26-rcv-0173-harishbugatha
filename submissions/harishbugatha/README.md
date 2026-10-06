@@ -6,6 +6,11 @@
 **Stage:** Step 01 of 05 — Inbound Receiving & Condition on Arrival  
 **Core Specification:** PRD-3 DEBATE — Adversarial Multi-Role Verification with Strict Physical Crop Isolation  
 
+> **Scope note:** uploaded photos are inspected by a Claude vision model when `ANTHROPIC_API_KEY` is set
+> (Prosecutor, Defender and an isolated Blind Verifier as separate calls); without it, or on any model
+> failure, the result is `UNCERTAIN` and recordable only as pending review. The 10 scenarios use scripted
+> fixtures. The model path is tested with a test double only. See the main [`README.md`](../../README.md).
+
 ---
 
 ## Deliverables Index
@@ -13,19 +18,20 @@
 | Deliverable | Description | Path / Link | Status |
 |---|---|---|---|
 | **Architecture Document** | Full 5-layer PRD-3 DEBATE architecture, 3-role pipeline, evidence graph, security | [`ARCHITECTURE.md`](../../ARCHITECTURE.md) | ✅ Complete |
-| **Adversarial Debate Engine** | 3-Role Pipeline (Prosecutor, Defender, Blind Verifier with crop isolation) | [`server/debateEngine.js`](../../server/debateEngine.js) | ✅ Complete |
+| **Adversarial Debate Engine** | Three logical roles (Prosecutor, Defender, Blind Verifier), deterministic rule-based code; no model calls | [`server/debateEngine.js`](../../server/debateEngine.js) | ✅ Complete |
 | **Security Preprocessing** | MIME whitelist, 15MB limit, Sharp EXIF stripping, SHA-256 master hashing | [`server/security.js`](../../server/security.js) | ✅ Complete |
 | **Precision Crop Engine** | Sub-pixel ROI extraction, SVG bounding box visual annotation, crop SHA-256 | [`server/cropEngine.js`](../../server/cropEngine.js) | ✅ Complete |
-| **10 PRD Visual Scenarios** | Complete benchmark suite with SVG/PNG visuals and ground-truth specs | [`server/scenarios.js`](../../server/scenarios.js) | ✅ Complete |
+| **10 PRD Visual Scenarios** | Generated SVG/PNG visuals with scripted observation metadata (not a real-photo evaluation set) | [`server/scenarios.js`](../../server/scenarios.js) | ✅ Complete |
 | **Interactive Evidence Graph** | Visual DAG linking Verdict ➔ Claim ➔ Roles ➔ Crop ROI ➔ SHA-256 | [`src/components/EvidenceGraph.tsx`](../../src/components/EvidenceGraph.tsx) | ✅ Complete |
 | **Interactive Debate Visualizer** | Live 3-role progression display with confidence gauges and stance tags | [`src/components/DebatePipelineVisualizer.tsx`](../../src/components/DebatePipelineVisualizer.tsx) | ✅ Complete |
 | **Visual Evidence Viewer** | High-res receiving photo viewer with normalized ROI bounding boxes | [`src/components/VisualEvidenceViewer.tsx`](../../src/components/VisualEvidenceViewer.tsx) | ✅ Complete |
-| **Adversarial Dossier Modal** | Sub-pixel crop zoom, cryptographic signatures, detailed role arguments | [`src/components/DossierModal.tsx`](../../src/components/DossierModal.tsx) | ✅ Complete |
+| **Adversarial Dossier Modal** | Crop zoom, SHA-256 content hashes of the image and crop, role-by-role reasoning | [`src/components/DossierModal.tsx`](../../src/components/DossierModal.tsx) | ✅ Complete |
 | **Structured Report & Export** | Exportable JSON audit contract and printable HTML receiving dossier | [`src/components/StructuredReportView.tsx`](../../src/components/StructuredReportView.tsx) | ✅ Complete |
-| **Tenancy Isolation Service** | Row-level security for `org_demo_alpha` & `org_demo_bravo` | [`src/services/dataService.ts`](../../src/services/dataService.ts) | ✅ Complete |
+| **Tenancy Isolation Service** | Application-level filtering by organisation for `org_demo_alpha` & `org_demo_bravo` (no database RLS) | [`src/services/dataService.ts`](../../src/services/dataService.ts) | ✅ Complete |
 | **Cross-Pod Evidence Contract** | JSON contract feeding 02 Prep and 05 Recovery | [`src/components/CrossPodExportModal.tsx`](../../src/components/CrossPodExportModal.tsx) | ✅ Complete |
 | **Operator Override Audit** | Captures operator overrides with mandatory reasons ("overrides are data") | [`src/components/OverrideModal.tsx`](../../src/components/OverrideModal.tsx) | ✅ Complete |
-| **Unit & Integration Test Suite** | Automated test suite validating all 10 scenarios, isolation, and security | [`tests/`](../../tests/) | ✅ 100% Pass |
+| **Integrity (hash chain)** | SHA-256 record content hashes, per-organisation hash chain, integrity verification, persisted in browser storage | [`src/services/dataService.ts`](../../src/services/dataService.ts) | ✅ Complete (tamper detection, not immutability) |
+| **Unit & Integration Test Suite** | 103 tests: classification, 10 scenarios, record consistency, vision fail-open, Blind Verifier isolation, report tenant isolation, hash chain, persistence | [`tests/`](../../tests/) | ✅ 103/103 passing |
 
 ---
 
@@ -64,9 +70,9 @@ npm test
 # 3. Build production bundle
 npm run build
 
-# 4. Start production server (serves backend API and client on port 3001)
-npm start
+# 4. Start the server (serves the API and the built UI on port 3001)
+node server/server.js
 
-# Or start Vite dev server concurrently
+# Optional: Vite dev server on 5173 (proxies /api to the server on 3001)
 npm run dev
 ```

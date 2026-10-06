@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import {
   Boxes,
   Building2,
@@ -6,23 +6,32 @@ import {
   ClipboardList,
   AlertTriangle,
   History,
-  Terminal,
-  Layers,
-  Clock,
-  Radio,
-  Scale,
+  Keyboard,
+  LayoutDashboard,
+  ScanSearch,
 } from 'lucide-react';
 import { TenantId } from '../types/receiving';
 
+export type AppTab = 'debate' | 'terminal' | 'dashboard' | 'orders' | 'discrepancies' | 'audit';
+
 interface NavbarProps {
-  activeTab: 'debate' | 'terminal' | 'dashboard' | 'orders' | 'discrepancies' | 'audit';
-  setActiveTab: (tab: 'debate' | 'terminal' | 'dashboard' | 'orders' | 'discrepancies' | 'audit') => void;
+  activeTab: AppTab;
+  setActiveTab: (tab: AppTab) => void;
   tenantId: TenantId;
   setTenantId: (tenant: TenantId) => void;
   operatorId: string;
   setOperatorId: (op: string) => void;
   discrepancyCount: number;
 }
+
+const TABS: { id: AppTab; label: string; icon: React.ElementType }[] = [
+  { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  { id: 'debate', label: 'New Inspection', icon: ScanSearch },
+  { id: 'terminal', label: 'Manual Receiving', icon: Keyboard },
+  { id: 'orders', label: 'Purchase Orders', icon: ClipboardList },
+  { id: 'discrepancies', label: 'Discrepancies', icon: AlertTriangle },
+  { id: 'audit', label: 'Audit Trail', icon: History },
+];
 
 export const Navbar: React.FC<NavbarProps> = ({
   activeTab,
@@ -33,224 +42,69 @@ export const Navbar: React.FC<NavbarProps> = ({
   setOperatorId,
   discrepancyCount,
 }) => {
-  const [timeString, setTimeString] = useState('');
-
-  useEffect(() => {
-    const updateTime = () => {
-      const now = new Date();
-      setTimeString(now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
-    };
-    updateTime();
-    const interval = setInterval(updateTime, 1000);
-    return () => clearInterval(interval);
-  }, []);
-
   return (
     <header className="navbar">
       <div className="navbar-top">
         <div className="brand-section">
-          <div className="brand-icon-box">
-            <Boxes size={22} />
+          <div className="brand-icon-box" aria-hidden="true">
+            <Boxes size={19} />
           </div>
           <div className="brand-title-group">
-            <h1>
-              RECEIVING MANAGER
-              <span className="badge" style={{ backgroundColor: '#1e3a8a', color: '#93c5fd', border: '1px solid #3b82f6', fontSize: '0.65rem' }}>
-                STAGE 01 · DOCK
-              </span>
-            </h1>
-            <div className="brand-subtitle">
-              CUBE BUILDATHON 2026 · COMMERCE CONTEXT STREAM
-            </div>
+            <h1>Receiving Manager</h1>
+            <div className="brand-subtitle">Inbound dock · Stage 01 of 05 · Condition on arrival</div>
           </div>
         </div>
 
         <div className="nav-controls">
-          {/* Warehouse Live Clock */}
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '5px',
-              fontSize: '0.75rem',
-              color: '#94a3b8',
-              fontFamily: 'var(--font-mono)',
-              backgroundColor: '#0a0f1d',
-              padding: '0.3rem 0.65rem',
-              borderRadius: 'var(--radius-sm)',
-              border: '1px solid var(--border-subtle)',
-            }}
-            title="Local Warehouse Clock"
-          >
-            <Clock size={13} style={{ color: '#38bdf8' }} />
-            <span>{timeString || '12:00:00'}</span>
-          </div>
-
-          {/* Dock Station Tag */}
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '5px',
-              fontSize: '0.75rem',
-              color: '#cbd5e1',
-              fontFamily: 'var(--font-mono)',
-              backgroundColor: '#1e293b',
-              padding: '0.3rem 0.65rem',
-              borderRadius: 'var(--radius-sm)',
-              border: '1px solid var(--border-subtle)',
-            }}
-          >
-            <Radio size={13} style={{ color: '#34d399' }} />
-            <span>BAY-03</span>
-          </div>
-
-          {/* Tenant Switcher enforcing Rule 1 */}
-          <div className="tenant-pill" title="Row-Level Security Tenant Scoping">
-            <Building2 size={15} style={{ color: '#38bdf8' }} />
-            <span style={{ fontSize: '0.725rem', color: '#94a3b8' }}>TENANT:</span>
+          <label className="nav-chip" title="Tenant scope (row-level isolation)">
+            <Building2 size={14} />
+            <span className="nav-chip-label">Org</span>
             <select
-              className="tenant-select"
               value={tenantId}
               onChange={(e) => setTenantId(e.target.value as TenantId)}
-              aria-label="Select Tenant Organization"
+              aria-label="Select tenant organisation"
             >
               <option value="org_demo_alpha">org_demo_alpha</option>
               <option value="org_demo_bravo">org_demo_bravo</option>
             </select>
-          </div>
+          </label>
 
-          {/* Operator ID Badge */}
-          <div className="operator-badge" title="Active Warehouse Operator (Click to edit)">
+          <label className="nav-chip hide-md" title="Active operator (editable)">
             <User size={14} />
+            <span className="nav-chip-label">Operator</span>
             <input
               type="text"
               value={operatorId}
               onChange={(e) => setOperatorId(e.target.value)}
-              title="Click to edit Operator ID"
-              style={{
-                background: 'transparent',
-                border: 'none',
-                color: '#93c5fd',
-                width: '78px',
-                fontFamily: 'inherit',
-                fontSize: '0.8rem',
-                outline: 'none',
-                fontWeight: 600,
-              }}
+              aria-label="Operator ID"
             />
-          </div>
+          </label>
 
-          {/* Inter-pod connection status */}
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              fontSize: '0.725rem',
-              color: '#34d399',
-              fontFamily: 'var(--font-mono)',
-              background: 'rgba(16, 185, 129, 0.12)',
-              padding: '0.25rem 0.6rem',
-              borderRadius: '999px',
-              border: '1px solid rgba(16, 185, 129, 0.3)',
-            }}
-          >
-            <span
-              style={{
-                width: '7px',
-                height: '7px',
-                borderRadius: '50%',
-                backgroundColor: '#10b981',
-                boxShadow: '0 0 6px #10b981',
-              }}
-            />
-            FEEDING 02_PREP
-          </div>
+          <span className="nav-chip hide-md" title="Dock station">
+            <span className="status-dot" aria-hidden="true" />
+            Bay 03
+          </span>
         </div>
       </div>
 
-      <nav className="navbar-tabs" aria-label="Main Navigation">
-        <button
-          className={`nav-tab-btn ${activeTab === 'debate' ? 'active' : ''}`}
-          onClick={() => setActiveTab('debate')}
-          style={{
-            borderLeft: activeTab === 'debate' ? '3px solid var(--accent-cyan)' : 'none',
-            background: activeTab === 'debate' ? 'rgba(6, 182, 212, 0.15)' : 'transparent',
-          }}
-        >
-          <Scale size={17} style={{ color: activeTab === 'debate' ? '#22d3ee' : '#94a3b8' }} />
-          <span>PRD-3 DEBATE</span>
-          <span
-            style={{
-              backgroundColor: 'rgba(6, 182, 212, 0.25)',
-              color: '#38bdf8',
-              border: '1px solid rgba(6, 182, 212, 0.4)',
-              borderRadius: '999px',
-              padding: '0.1rem 0.45rem',
-              fontSize: '0.68rem',
-              fontWeight: 700,
-              marginLeft: '0.35rem',
-            }}
+      <nav className="navbar-tabs" aria-label="Main navigation">
+        {TABS.map(({ id, label, icon: Icon }) => (
+          <button
+            key={id}
+            type="button"
+            className={`nav-tab-btn ${activeTab === id ? 'active' : ''}`}
+            onClick={() => setActiveTab(id)}
+            aria-current={activeTab === id ? 'page' : undefined}
           >
-            10 SCENARIOS
-          </span>
-        </button>
-
-        <button
-          className={`nav-tab-btn ${activeTab === 'terminal' ? 'active' : ''}`}
-          onClick={() => setActiveTab('terminal')}
-        >
-          <Terminal size={17} />
-          Receiving Terminal
-        </button>
-
-        <button
-          className={`nav-tab-btn ${activeTab === 'dashboard' ? 'active' : ''}`}
-          onClick={() => setActiveTab('dashboard')}
-        >
-          <Layers size={17} />
-          Operations Dashboard
-        </button>
-
-        <button
-          className={`nav-tab-btn ${activeTab === 'orders' ? 'active' : ''}`}
-          onClick={() => setActiveTab('orders')}
-        >
-          <ClipboardList size={17} />
-          PO Registry
-        </button>
-
-        <button
-          className={`nav-tab-btn ${activeTab === 'discrepancies' ? 'active' : ''}`}
-          onClick={() => setActiveTab('discrepancies')}
-        >
-          <AlertTriangle size={17} />
-          Discrepancies & Claims
-          {discrepancyCount > 0 && (
-            <span
-              style={{
-                backgroundColor: '#ef4444',
-                color: 'white',
-                borderRadius: '999px',
-                padding: '0.1rem 0.45rem',
-                fontSize: '0.7rem',
-                fontWeight: 700,
-                marginLeft: '0.25rem',
-              }}
-            >
-              {discrepancyCount}
-            </span>
-          )}
-        </button>
-
-        <button
-          className={`nav-tab-btn ${activeTab === 'audit' ? 'active' : ''}`}
-          onClick={() => setActiveTab('audit')}
-        >
-          <History size={17} />
-          Audit & Cross-Pod Hashes
-        </button>
+            <Icon size={16} />
+            {label}
+            {id === 'discrepancies' && discrepancyCount > 0 && (
+              <span className="nav-count" aria-label={`${discrepancyCount} open discrepancies`}>
+                {discrepancyCount}
+              </span>
+            )}
+          </button>
+        ))}
       </nav>
     </header>
   );

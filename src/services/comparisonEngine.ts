@@ -8,6 +8,7 @@ import {
   CrossPodEvidenceContract,
   ReceivingRecord,
 } from '../types/receiving';
+import { sha256Hex, canonicalJson } from './sha256';
 
 export interface ComparisonInput {
   expectedSku: string;
@@ -133,48 +134,53 @@ export function compareShipment(input: ComparisonInput): ComparisonResult {
       : 'No color variance, variant mismatch, missing items, or visible defects observed.',
   });
 
-  // Determine overall ReceivingStatus by strict warehouse priority:
-  let status: ReceivingStatus = 'MATCHED';
-  let discrepancyType: string | null = null;
-  let disposition: DispositionAction = 'ACCEPT_TO_PREP';
-  let summaryExplanation = '';
+  // Collect every discrepancy that is present (nothing is hidden behind another).
+  // Order = priority of the primary status:
+  //   wrong product > quantity (short / over) > damage > quality > uncertain
+  // Quantity outranks damage/quality so a shortage or surplus is never masked by a
+  // generic quality flag; damage and quality facts stay in `discrepancies`,
+  // cartonDamage/unitDamage and qualityFlags.
+  const isUncertain =
+    cartonDamage === 'uncertain' || unitDamage === 'uncertain' || input.identityMatchOverride === 'uncertain';
+  const discrepancies: ReceivingStatus[] = [];
+  if (!isSkuMatched) discrepancies.push('WRONG_PRODUCT');
+  if (qtyDifference < 0) discrepancies.push('SHORT_RECEIVED');
+  if (qtyDifference > 0) discrepancies.push('OVER_RECEIVED');
+  if (hasCartonDamage || hasUnitDamage) discrepancies.push('DAMAGED');
+  if (hasQualityFlags) discrepancies.push('QUALITY_DISCREPANCY');
+  if (isUncertain) discrepancies.push('UNCERTAIN');
 
-  if (!isSkuMatched) {
-    status = 'WRONG_PRODUCT';
-    discrepancyType = 'Wrong Product / SKU Mismatch';
-    disposition = 'HOLD_QUARANTINE_RECOVERY';
-    summaryExplanation = `CRITICAL: Received SKU "${normalizedReceivedSku}" does not match purchase order SKU "${normalizedExpectedSku}". Quarantine shipment immediately.`;
-  } else if (hasCartonDamage || hasUnitDamage) {
-    status = 'DAMAGED';
-    discrepancyType = `Physical Damage (${[hasCartonDamage ? `Carton: ${cartonDamage}` : '', hasUnitDamage ? `Unit: ${unitDamage}` : ''].filter(Boolean).join(', ')})`;
-    disposition = 'HOLD_QUARANTINE_RECOVERY';
-    summaryExplanation = `Shipment received with structural damage. Hold for inbound carrier/supplier recovery claim.`;
-  } else if (hasQualityFlags) {
-    status = 'QUALITY_DISCREPANCY';
-    discrepancyType = `Quality Non-Conformance (${qualityFlags.join(', ')})`;
-    disposition = 'HOLD_QUARANTINE_RECOVERY';
-    summaryExplanation = `Goods fail PO specification: ${qualityFlags.join(', ')}. Routed to quarantine for supplier return or credit.`;
-  } else if (cartonDamage === 'uncertain' || unitDamage === 'uncertain' || input.identityMatchOverride === 'uncertain') {
-    status = 'UNCERTAIN';
-    discrepancyType = 'Inconclusive Evidence / Uncertain Assessment';
-    disposition = 'SUPERVISOR_REVIEW';
-    summaryExplanation = `Assessment confidence is uncertain. Operator or lead review required before release.`;
-  } else if (qtyDifference < 0) {
-    status = 'SHORT_RECEIVED';
-    discrepancyType = `Shortage (${Math.abs(qtyDifference)} units missing)`;
-    disposition = 'ACCEPT_WITH_SHORTAGE';
-    summaryExplanation = `Short delivery: Expected ${qtyOrdered} units, received ${qtyReceived} units (${Math.abs(qtyDifference)} short). Logged for inbound claim.`;
-  } else if (qtyDifference > 0) {
-    status = 'OVER_RECEIVED';
-    discrepancyType = `Over-delivery (+${qtyDifference} excess units)`;
-    disposition = 'HOLD_SURPLUS';
-    summaryExplanation = `Over delivery: Expected ${qtyOrdered} units, received ${qtyReceived} units (+${qtyDifference} surplus). Quarantine surplus pending buyer confirmation.`;
-  } else {
-    status = 'MATCHED';
-    discrepancyType = null;
-    disposition = 'ACCEPT_TO_PREP';
-    summaryExplanation = `All verifications passed. Goods match PO line items and unit count exactly. Cleared for Prep Manager (Step 02).`;
-  }
+  const status: ReceivingStatus = discrepancies[0] || 'MATCHED';
+
+  const describe: Record<string, string> = {
+    WRONG_PRODUCT: 'Wrong Product / SKU Mismatch',
+    SHORT_RECEIVED: `Shortage (${Math.abs(qtyDifference)} units missing)`,
+    OVER_RECEIVED: `Over-delivery (+${qtyDifference} excess units)`,
+    DAMAGED: `Physical Damage (${[hasCartonDamage ? `Carton: ${cartonDamage}` : '', hasUnitDamage ? `Unit: ${unitDamage}` : ''].filter(Boolean).join(', ')})`,
+    QUALITY_DISCREPANCY: `Quality Non-Conformance (${qualityFlags.join(', ')})`,
+    UNCERTAIN: 'Inconclusive Evidence / Uncertain Assessment',
+  };
+  const discrepancyType: string | null = discrepancies.length ? discrepancies.map((d) => describe[d]).join(' + ') : null;
+
+  // Disposition = most protective action required by any discrepancy present
+  const needsQuarantine = discrepancies.some((d) => d === 'WRONG_PRODUCT' || d === 'DAMAGED' || d === 'QUALITY_DISCREPANCY');
+  let disposition: DispositionAction = 'ACCEPT_TO_PREP';
+  if (needsQuarantine) disposition = 'HOLD_QUARANTINE_RECOVERY';
+  else if (isUncertain) disposition = 'SUPERVISOR_REVIEW';
+  else if (qtyDifference < 0) disposition = 'ACCEPT_WITH_SHORTAGE';
+  else if (qtyDifference > 0) disposition = 'HOLD_SURPLUS';
+
+  const sentences: Record<string, string> = {
+    WRONG_PRODUCT: `CRITICAL: Received SKU "${normalizedReceivedSku}" does not match purchase order SKU "${normalizedExpectedSku}". Quarantine shipment immediately.`,
+    SHORT_RECEIVED: `Short delivery: Expected ${qtyOrdered} units, received ${qtyReceived} units (${Math.abs(qtyDifference)} short). Logged for inbound claim.`,
+    OVER_RECEIVED: `Over delivery: Expected ${qtyOrdered} units, received ${qtyReceived} units (+${qtyDifference} surplus). Quarantine surplus pending buyer confirmation.`,
+    DAMAGED: 'Shipment received with structural damage. Hold for inbound carrier/supplier recovery claim.',
+    QUALITY_DISCREPANCY: `Goods fail PO specification: ${qualityFlags.join(', ')}. Routed to quarantine for supplier return or credit.`,
+    UNCERTAIN: 'Assessment confidence is uncertain. Operator or lead review required before release.',
+  };
+  const summaryExplanation = discrepancies.length
+    ? discrepancies.map((d) => sentences[d]).join(' ')
+    : 'All verifications passed. Goods match PO line items and unit count exactly. Cleared for Prep Manager (Step 02).';
 
   return {
     status,
@@ -189,30 +195,34 @@ export function compareShipment(input: ComparisonInput): ComparisonResult {
     disposition,
     summaryExplanation,
     checks,
+    discrepancies,
   };
 }
 
+/** Prefix identifying a Stage-01 receiving-record content hash; followed by 64 hex chars of SHA-256. */
+export const CONTENT_HASH_PREFIX = 'sha256-01rcv-';
+
 /**
- * Creates a deterministic SHA-256 hash representation for tamper-evident record logging
+ * SHA-256 content hash of a receiving record (or any subset of its fields).
+ * The hash covers the canonical JSON of every field except `contentHash`
+ * itself, so any change to the stored content produces a different hash.
+ * Detecting that change is done by integrity verification against the
+ * audit hash chain (see dataService.verifyIntegrity).
  */
-export function generateContentHash(record: {
-  poNumber: string;
-  poLine: number;
-  sku: string;
-  qtyReceived: number;
-  status: string;
-  operatorId: string;
-  capturedAt: string;
-}): string {
-  const payload = `${record.poNumber}|${record.poLine}|${record.sku}|${record.qtyReceived}|${record.status}|${record.operatorId}|${record.capturedAt}`;
-  let hash = 0;
-  for (let i = 0; i < payload.length; i++) {
-    const char = payload.charCodeAt(i);
-    hash = (hash << 5) - hash + char;
-    hash |= 0; // Convert to 32bit integer
-  }
-  const hex = Math.abs(hash).toString(16).padStart(8, '0');
-  return `sha256-01rcv-${hex}${hex.split('').reverse().join('')}`;
+export function generateContentHash(record: object): string {
+  const { contentHash: _ignored, ...content } = record as Record<string, unknown>;
+  return `${CONTENT_HASH_PREFIX}${sha256Hex(canonicalJson(content))}`;
+}
+
+/** All discrepancies on a record (falls back to its primary status for older records). */
+export function recordDiscrepancies(record: Pick<ReceivingRecord, 'status' | 'discrepancies'>): ReceivingStatus[] {
+  if (record.discrepancies && record.discrepancies.length > 0) return record.discrepancies;
+  return record.status === 'MATCHED' ? [] : [record.status];
+}
+
+/** True when the record has this discrepancy as its primary status or as an additional one. */
+export function recordHasStatus(record: Pick<ReceivingRecord, 'status' | 'discrepancies'>, status: ReceivingStatus): boolean {
+  return record.status === status || recordDiscrepancies(record).includes(status);
 }
 
 /**
@@ -253,6 +263,7 @@ export function buildEvidenceContract(record: ReceivingRecord): CrossPodEvidence
     },
     verdict: {
       finalStatus: record.status,
+      discrepancies: recordDiscrepancies(record),
       disposition: record.disposition,
       isOverridden: !!record.operatorOverride,
       overrideDetails: record.operatorOverride,

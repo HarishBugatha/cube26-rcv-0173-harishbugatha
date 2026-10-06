@@ -13,9 +13,37 @@ const {
 } = require('./security');
 const { SCENARIOS, getScenarioImageBuffer } = require('./scenarios');
 const { runDebatePipeline } = require('./debateEngine');
+const { createVisionProvider } = require('./visionProvider');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
+
+// Vision model used for uploaded photos (null when ANTHROPIC_API_KEY is not set).
+// Kept on app.locals so tests can substitute a provider.
+app.locals.visionProvider = createVisionProvider();
+
+// -------------------------------------------------------------
+// Tenant resolution (Engineering Rule 1)
+// The requesting organisation comes from the X-Org-Id header (or ?org= for links opened
+// in a new window). This is application-level scoping: there is no user authentication,
+// so the client asserts its organisation; every cached report is bound to the
+// organisation that created it and is only returned to that organisation.
+// -------------------------------------------------------------
+const KNOWN_TENANTS = new Set(['org_demo_alpha', 'org_demo_bravo']);
+
+function resolveTenant(req) {
+  const value = req.get('x-org-id') || req.query.org;
+  return typeof value === 'string' && KNOWN_TENANTS.has(value) ? value : null;
+}
+
+function requireTenant(req, res, next) {
+  const tenantId = resolveTenant(req);
+  if (!tenantId) {
+    return res.status(400).json({ success: false, error: 'A valid organisation (X-Org-Id) is required.' });
+  }
+  req.tenantId = tenantId;
+  next();
+}
 
 // Enable CORS and JSON parsing
 app.use(cors());
@@ -29,8 +57,13 @@ if (fs.existsSync(clientDistPath)) {
   app.use(express.static(clientDistPath));
 }
 
-// In-memory report cache for export / download
+// In-memory report cache for export / download: inspectionId -> { orgId, report }
 const reportCache = new Map();
+
+function cacheReport(orgId, report) {
+  report.orgId = orgId;
+  reportCache.set(report.inspectionId, { orgId, report });
+}
 
 // Configure Multer memory storage for secure processing
 const upload = multer({
@@ -55,6 +88,10 @@ app.get('/api/health', (req, res) => {
       sha256Hashing: 'ENFORCED',
       blindVerifierIsolation: 'STRICT',
       textSanitization: 'ENABLED'
+    },
+    vision: {
+      configured: !!req.app.locals.visionProvider,
+      model: req.app.locals.visionProvider ? req.app.locals.visionProvider.model : null
     },
     uptime: process.uptime()
   });
@@ -110,7 +147,7 @@ app.get('/api/scenarios/:id', async (req, res) => {
 /**
  * Run DEBATE Verification Workflow on a PRD Scenario
  */
-app.post('/api/verify/scenario/:id', async (req, res) => {
+app.post('/api/verify/scenario/:id', requireTenant, async (req, res) => {
   try {
     const { id } = req.params;
     const scenario = SCENARIOS.find(s => s.id === id);
@@ -145,9 +182,9 @@ app.post('/api/verify/scenario/:id', async (req, res) => {
       'Adversarial DEBATE Pipeline'
     );
 
-    // Attach scenario id to report and cache
+    // Attach scenario id to report and cache it for the requesting organisation
     report.scenarioId = id;
-    reportCache.set(report.inspectionId, report);
+    cacheReport(req.tenantId, report);
 
     res.json({
       success: true,
@@ -162,7 +199,7 @@ app.post('/api/verify/scenario/:id', async (req, res) => {
 /**
  * Run DEBATE Verification Workflow on Custom Uploaded Image & PO
  */
-app.post('/api/verify/custom', upload.single('photo'), async (req, res) => {
+app.post('/api/verify/custom', requireTenant, upload.single('photo'), async (req, res) => {
   try {
     let imageBuffer;
     let rawMime = 'image/png';
@@ -195,18 +232,35 @@ app.post('/api/verify/custom', upload.single('photo'), async (req, res) => {
       notes: sanitizeExtractedText(req.body.notes || '')
     };
 
-    // Custom visual feature detection or inspection simulation
-    const customVisualMeta = req.body.visualMeta ? JSON.parse(req.body.visualMeta) : null;
+    // Observations for an uploaded photo come only from the vision model. Client-supplied
+    // "visualMeta" is deliberately ignored: accepting it would let a caller fabricate
+    // visual verification. Without a provider the engine reports
+    // VISUAL_VERIFICATION_UNAVAILABLE → UNCERTAIN.
+    const visionProvider = req.app.locals.visionProvider;
+    const pipelineTimeoutMs = visionProvider
+      ? Number(process.env.VISION_PIPELINE_TIMEOUT_MS) || 150000
+      : 25000;
 
-    // Run adversarial debate pipeline
-    const report = await withTimeout(
-      runDebatePipeline(po, cleanBuffer, cleanHash, rawHash, customVisualMeta),
-      25000,
-      'Custom DEBATE Verification Pipeline'
-    );
+    let report;
+    try {
+      report = await withTimeout(
+        runDebatePipeline(po, cleanBuffer, cleanHash, rawHash, null, { visionProvider }),
+        pipelineTimeoutMs,
+        'Vision inspection pipeline'
+      );
+    } catch (pipelineErr) {
+      // Rule 3 — fail open: the capture is still processed and returned as an UNCERTAIN,
+      // INCOMPLETE inspection with the failure reason; it is never treated as a pass.
+      console.error('Vision inspection failed; returning fail-open result:', pipelineErr.message);
+      report = await runDebatePipeline(po, cleanBuffer, cleanHash, rawHash, null, {
+        unavailableReason: pipelineErr.message,
+        unavailableKind: /timed out/i.test(pipelineErr.message) ? 'TIMEOUT' : 'PIPELINE_ERROR',
+        failedMode: visionProvider ? 'VISION_MODEL' : 'NONE'
+      });
+    }
 
     report.isCustomUpload = true;
-    reportCache.set(report.inspectionId, report);
+    cacheReport(req.tenantId, report);
 
     res.json({
       success: true,
@@ -221,13 +275,17 @@ app.post('/api/verify/custom', upload.single('photo'), async (req, res) => {
 /**
  * Download / Export Structured Inspection Report (JSON or HTML)
  */
-app.get('/api/report/:id', (req, res) => {
+app.get('/api/report/:id', requireTenant, (req, res) => {
   const { id } = req.params;
-  const report = reportCache.get(id);
+  const entry = reportCache.get(id);
 
-  if (!report) {
-    return res.status(404).json({ success: false, error: `Report ${id} not found or expired.` });
+  // Owner check: a report is only returned to the organisation that created it.
+  // Unknown IDs and other organisations' reports get the same generic 404, so the
+  // response reveals neither contents nor whether the ID exists.
+  if (!entry || entry.orgId !== req.tenantId) {
+    return res.status(404).json({ success: false, error: 'Report not found.' });
   }
+  const report = entry.report;
 
   const format = req.query.format || 'json';
 
@@ -284,11 +342,12 @@ app.get('/api/report/:id', (req, res) => {
         </div>
 
         <div class="section">
-          <h3 style="margin-top: 0; color: #38bdf8;">2. Security & Cryptographic Proof</h3>
-          <p><strong>Master Image SHA-256:</strong> <span class="hash">${report.securityAudit.cleanImageSha256}</span></p>
-          <p><strong>Raw Upload SHA-256:</strong> <span class="hash">${report.securityAudit.rawImageSha256}</span></p>
+          <h3 style="margin-top: 0; color: #38bdf8;">2. Evidence integrity &amp; verification status</h3>
+          <p><strong>Sanitised image SHA-256 content hash:</strong> <span class="hash">${report.securityAudit.cleanImageSha256}</span></p>
+          <p><strong>Raw upload SHA-256 content hash:</strong> <span class="hash">${report.securityAudit.rawImageSha256}</span></p>
           <p><strong>EXIF Metadata Stripped:</strong> ${report.securityAudit.metadataStripped ? 'YES (Sanitized)' : 'NO'}</p>
-          <p><strong>Blind Verifier Isolation:</strong> STRICT ISOLATION ENFORCED (Zero Claim/PO Context Delivered)</p>
+          <p><strong>Verification:</strong> ${report.verification ? `${report.verification.status} (${report.verification.mode}${report.verification.model ? `, ${report.verification.model}` : ''})` : 'n/a'}</p>
+          ${report.verification && report.verification.reasons && report.verification.reasons.length ? `<p><strong>Not completed because:</strong> ${report.verification.reasons.map((r) => `${r.stage}: ${r.reason}`).join('; ')}</p>` : ''}
         </div>
 
         <div class="section">

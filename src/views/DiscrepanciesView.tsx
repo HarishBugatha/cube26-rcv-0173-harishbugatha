@@ -4,6 +4,7 @@ import {
   Edit3,
 } from 'lucide-react';
 import { ReceivingRecord } from '../types/receiving';
+import { recordDiscrepancies, recordHasStatus } from '../services/comparisonEngine';
 import { DiscrepancyBadge } from '../components/DiscrepancyBadge';
 import { CrossPodExportModal } from '../components/CrossPodExportModal';
 import { OverrideModal } from '../components/OverrideModal';
@@ -30,23 +31,23 @@ export const DiscrepanciesView: React.FC<DiscrepanciesViewProps> = ({
 
   const filteredDiscrepancies = discrepancyRecords.filter((r) => {
     if (typeFilter === 'ALL') return true;
-    if (typeFilter === 'SHORT') return r.status === 'SHORT_RECEIVED';
-    if (typeFilter === 'OVER') return r.status === 'OVER_RECEIVED';
-    if (typeFilter === 'WRONG_SKU') return r.status === 'WRONG_PRODUCT';
-    if (typeFilter === 'DAMAGE') return r.status === 'DAMAGED';
-    if (typeFilter === 'QUALITY') return r.status === 'QUALITY_DISCREPANCY';
-    if (typeFilter === 'UNCERTAIN') return r.status === 'UNCERTAIN';
+    // Match primary or additional discrepancies (e.g. a short delivery with a quality flag appears in both filters)
+    if (typeFilter === 'SHORT') return recordHasStatus(r, 'SHORT_RECEIVED');
+    if (typeFilter === 'OVER') return recordHasStatus(r, 'OVER_RECEIVED');
+    if (typeFilter === 'WRONG_SKU') return recordHasStatus(r, 'WRONG_PRODUCT');
+    if (typeFilter === 'DAMAGE') return recordHasStatus(r, 'DAMAGED');
+    if (typeFilter === 'QUALITY') return recordHasStatus(r, 'QUALITY_DISCREPANCY');
+    if (typeFilter === 'UNCERTAIN') return recordHasStatus(r, 'UNCERTAIN');
     return true;
   });
 
   // Calculate total units variance
+  // Pending records (qtyDifference null: not counted) are excluded from unit totals
   const totalShortageUnits = discrepancyRecords
-    .filter((r) => r.qtyDifference < 0)
-    .reduce((sum, r) => sum + Math.abs(r.qtyDifference), 0);
+    .reduce((sum, r) => (r.qtyDifference !== null && r.qtyDifference < 0 ? sum + Math.abs(r.qtyDifference) : sum), 0);
 
   const totalSurplusUnits = discrepancyRecords
-    .filter((r) => r.qtyDifference > 0)
-    .reduce((sum, r) => sum + r.qtyDifference, 0);
+    .reduce((sum, r) => (r.qtyDifference !== null && r.qtyDifference > 0 ? sum + r.qtyDifference : sum), 0);
 
   return (
     <div>
@@ -163,7 +164,7 @@ export const DiscrepanciesView: React.FC<DiscrepanciesViewProps> = ({
                 }}
               >
                 <div className="card-panel-header">
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
                     <span className="font-mono" style={{ fontWeight: 700, color: '#38bdf8' }}>
                       {r.recordId}
                     </span>
@@ -171,6 +172,11 @@ export const DiscrepanciesView: React.FC<DiscrepanciesViewProps> = ({
                       Unit: {r.unitId}
                     </span>
                     <DiscrepancyBadge status={r.status} size="sm" />
+                    {recordDiscrepancies(r)
+                      .filter((d) => d !== r.status)
+                      .map((d) => (
+                        <DiscrepancyBadge key={d} status={d} size="sm" />
+                      ))}
                   </div>
 
                   <div style={{ display: 'flex', gap: '0.5rem' }}>
@@ -237,20 +243,26 @@ export const DiscrepanciesView: React.FC<DiscrepanciesViewProps> = ({
                     <div>
                       <div style={{ fontSize: '0.75rem', color: '#64748b' }}>QUANTITY RECONCILIATION:</div>
                       <div className="font-mono" style={{ fontSize: '0.9rem' }}>
-                        Expected: {r.qtyOrdered} | Received: {r.qtyReceived}
+                        Expected: {r.qtyOrdered} | Received: {r.qtyReceived ?? '— (not counted)'}
                       </div>
-                      <div
-                        className={`delta-tag ${
-                          r.qtyDifference === 0
-                            ? 'delta-matched'
-                            : r.qtyDifference < 0
-                            ? 'delta-short'
-                            : 'delta-over'
-                        }`}
-                        style={{ display: 'inline-block', marginTop: '3px', fontSize: '0.75rem' }}
-                      >
-                        Variance: {r.qtyDifference >= 0 ? `+${r.qtyDifference}` : r.qtyDifference} units
-                      </div>
+                      {r.qtyDifference === null ? (
+                        <div style={{ marginTop: '3px', fontSize: '0.75rem', color: 'var(--warn-text)' }}>
+                          Verification not completed{r.pendingReason ? `: ${r.pendingReason}` : ''}
+                        </div>
+                      ) : (
+                        <div
+                          className={`delta-tag ${
+                            r.qtyDifference === 0
+                              ? 'delta-matched'
+                              : r.qtyDifference < 0
+                              ? 'delta-short'
+                              : 'delta-over'
+                          }`}
+                          style={{ display: 'inline-block', marginTop: '3px', fontSize: '0.75rem' }}
+                        >
+                          Variance: {r.qtyDifference >= 0 ? `+${r.qtyDifference}` : r.qtyDifference} units
+                        </div>
+                      )}
                     </div>
                   </div>
 

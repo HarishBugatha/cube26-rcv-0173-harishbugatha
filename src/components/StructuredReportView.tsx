@@ -1,203 +1,266 @@
 import React from 'react';
-import { 
-  FileCheck2, 
-  Download, 
-  Printer, 
-  Lock 
+import {
+  Download,
+  Printer,
+  ArrowRightCircle,
+  CheckCircle2,
+  ShieldCheck,
+  ListChecks,
+  ChevronRight,
+  LayoutDashboard,
 } from 'lucide-react';
-import { DebateInspectionReport } from '../types/receiving';
+import { DebateInspectionReport, DebatedClaim, PRDScenarioPo, TenantId } from '../types/receiving';
+import { VERDICT_META, ClaimStatusPill, HashField, checkName } from './ui';
+import { observedFeaturesOf, isVisuallyVerified } from '../services/inspectionRecord';
+import { calculateDifference } from '../services/comparisonEngine';
 
 interface StructuredReportViewProps {
   report: DebateInspectionReport | null;
+  po: PRDScenarioPo;
+  tenantId: TenantId;
+  ingested: boolean;
+  recordId?: string;
+  onIngest: () => void;
+  onViewDashboard: () => void;
+  onClaimClick: (claim: DebatedClaim) => void;
 }
 
-export const StructuredReportView: React.FC<StructuredReportViewProps> = ({ report }) => {
+const ACTION_LABELS: Record<string, string> = {
+  RELEASE_TO_INVENTORY: 'Release to inventory',
+  HOLD_AND_QUARANTINE: 'Hold & quarantine',
+  MANUAL_INSPECTION_REQUIRED: 'Manual inspection',
+};
+
+export const StructuredReportView: React.FC<StructuredReportViewProps> = ({
+  report,
+  po,
+  tenantId,
+  ingested,
+  recordId,
+  onIngest,
+  onViewDashboard,
+  onClaimClick,
+}) => {
   if (!report) return null;
 
+  const observed = observedFeaturesOf(report, po);
+  const verified = isVisuallyVerified(report, po);
+  const qtyDiff = verified ? calculateDifference(observed.itemsDetected as number, Number(report.expectedQuantity)) : null;
+
+  const meta = VERDICT_META[report.finalVerdict] || VERDICT_META.UNCERTAIN;
+  const VerdictIcon = meta.icon;
+  const summary = report.claimsSummary || { total: 0, verified: 0, challenged: 0, rejected: 0 };
+
   const handleDownloadJson = () => {
-    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(report, null, 2));
+    const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(report, null, 2));
     const downloadAnchor = document.createElement('a');
-    downloadAnchor.setAttribute("href", dataStr);
-    downloadAnchor.setAttribute("download", `${report.inspectionId}-DEBATE-evidence-report.json`);
+    downloadAnchor.setAttribute('href', dataStr);
+    downloadAnchor.setAttribute('download', `${report.inspectionId}-DEBATE-evidence-report.json`);
     document.body.appendChild(downloadAnchor);
     downloadAnchor.click();
     downloadAnchor.remove();
   };
 
   const handlePrintHtml = () => {
-    window.open(`/api/report/${report.inspectionId}?format=html`, '_blank');
+    // The server only returns a report to the organisation that owns it
+    window.open(`/api/report/${encodeURIComponent(report.inspectionId)}?format=html&org=${encodeURIComponent(tenantId)}`, '_blank', 'noopener');
   };
 
-  const isException = report.finalVerdict === 'EXCEPTION';
-  const isUncertain = report.finalVerdict === 'UNCERTAIN';
-
-  let verdictColor = '#10b981';
-  let verdictBg = 'rgba(16, 185, 129, 0.15)';
-  if (isException) {
-    verdictColor = '#ef4444';
-    verdictBg = 'rgba(239, 68, 68, 0.15)';
-  } else if (isUncertain) {
-    verdictColor = '#f59e0b';
-    verdictBg = 'rgba(245, 158, 11, 0.15)';
-  }
-
   return (
-    <div className="glass-panel" style={{ padding: '24px', marginBottom: '24px' }}>
-      
-      {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '14px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-          <div style={{
-            width: '36px',
-            height: '36px',
-            borderRadius: '10px',
-            background: 'linear-gradient(135deg, #10b981, #06b6d4)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center'
-          }}>
-            <FileCheck2 size={20} color="#ffffff" />
-          </div>
-          <div>
-            <h2 style={{ fontSize: '1.2rem', fontWeight: '700', color: '#f8fafc' }}>
-              Structured Receiving Inspection Report
-            </h2>
-            <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-              Audit Reference: <span style={{ fontFamily: 'monospace', color: '#38bdf8' }}>{report.inspectionId}</span> • Verified: {new Date(report.timestamp).toLocaleTimeString()}
-            </p>
-          </div>
+    <section className="stack fade-in" style={{ gap: 16 }} aria-label="Inspection result">
+      {/* Verdict */}
+      <div className={`verdict-banner v-${report.finalVerdict}`} role="status">
+        <div className="verdict-icon" aria-hidden="true">
+          <VerdictIcon size={26} />
         </div>
-
-        {/* Action Buttons */}
-        <div style={{ display: 'flex', gap: '10px' }}>
-          <button
-            type="button"
-            onClick={handleDownloadJson}
-            className="btn-secondary"
-            style={{ fontSize: '0.82rem', padding: '8px 14px' }}
-          >
-            <Download size={15} />
-            <span>Download JSON Evidence</span>
-          </button>
-          <button
-            type="button"
-            onClick={handlePrintHtml}
-            className="btn-primary"
-            style={{ fontSize: '0.82rem', padding: '8px 14px' }}
-          >
-            <Printer size={15} />
-            <span>Print / Export Dossier (HTML)</span>
-          </button>
+        <div style={{ minWidth: 0 }}>
+          <div className="page-eyebrow" style={{ marginBottom: 2 }}>Inspection verdict</div>
+          <div className="verdict-word">{report.finalVerdict}</div>
+          <div className="verdict-meaning">{meta.meaning}</div>
+          <div className="verdict-rationale">{report.decisionRationale}</div>
+        </div>
+        <div className="verdict-actions stack" style={{ gap: 8, alignItems: 'stretch' }}>
+          {ingested ? (
+            <>
+              <span className="notice notice-success" style={{ padding: '7px 10px' }}>
+                <CheckCircle2 size={15} />
+                {recordId ? `Recorded as ${recordId}` : `Recorded to ${tenantId}`}
+              </span>
+              <button type="button" className="btn-secondary" onClick={onViewDashboard}>
+                <LayoutDashboard size={15} />
+                View on dashboard
+              </button>
+            </>
+          ) : verified ? (
+            <button type="button" className="btn-primary" onClick={onIngest}>
+              <ArrowRightCircle size={15} />
+              Record to receiving log
+            </button>
+          ) : (
+            <>
+              <button type="button" className="btn-secondary" onClick={onIngest} data-testid="record-pending">
+                <ArrowRightCircle size={15} />
+                Record as pending review
+              </button>
+              <span className="xsmall muted" style={{ maxWidth: 260 }}>
+                Verification was not completed, so no received count is recorded. A supervisor must count and confirm.
+              </span>
+            </>
+          )}
+          <div className="row" style={{ gap: 8 }}>
+            <button type="button" className="btn-secondary btn-sm" style={{ flex: 1 }} onClick={handleDownloadJson} title="Download the full evidence report as JSON">
+              <Download size={14} />
+              JSON
+            </button>
+            <button type="button" className="btn-secondary btn-sm" style={{ flex: 1 }} onClick={handlePrintHtml} title="Open a printable HTML report">
+              <Printer size={14} />
+              Print
+            </button>
+          </div>
         </div>
       </div>
 
-      {/* Decision Banner */}
-      <div style={{
-        background: verdictBg,
-        border: `2px solid ${verdictColor}`,
-        borderRadius: 'var(--radius-lg)',
-        padding: '20px',
-        marginBottom: '20px',
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        flexWrap: 'wrap',
-        gap: '16px'
-      }}>
+      {/* Verification not completed (fail open) */}
+      {report.verification && report.verification.status === 'INCOMPLETE' && (
+        <div className="notice" role="alert" data-testid="verification-incomplete"
+          style={{ borderColor: 'var(--warn-border)', background: 'var(--warn-bg)', color: '#fde68a' }}>
+          <div>
+            <strong>Verification not completed.</strong> The result is UNCERTAIN and cannot become ACCEPT.
+            <ul style={{ margin: '4px 0 0', paddingLeft: 18 }}>
+              {report.verification.reasons.map((r, i) => (
+                <li key={i}>
+                  <span className="mono">{r.stage}</span> — {r.reason}
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      )}
+
+      {/* Key facts */}
+      <div className="kv-grid">
         <div>
-          <span style={{ fontSize: '0.74rem', color: '#cbd5e1', fontWeight: '800', textTransform: 'uppercase', letterSpacing: '0.08em', display: 'block', marginBottom: '2px' }}>
-            RECEIVING VERIFICATION VERDICT
-          </span>
-          <h3 style={{ fontSize: '1.6rem', fontWeight: '900', color: verdictColor, letterSpacing: '-0.02em' }}>
-            {report.finalVerdict}
-          </h3>
-          <p style={{ fontSize: '0.88rem', color: '#f8fafc', marginTop: '4px', maxWidth: '680px' }}>
-            {report.decisionRationale}
-          </p>
+          <div className="kv-label">Recommended action</div>
+          <div className="kv-value">{ACTION_LABELS[report.recommendedAction] || report.recommendedAction}</div>
         </div>
-
-        <div style={{
-          background: 'rgba(15, 23, 42, 0.8)',
-          border: '1px solid var(--border-subtle)',
-          borderRadius: '10px',
-          padding: '12px 18px',
-          textAlign: 'right'
-        }}>
-          <span style={{ fontSize: '0.7rem', color: '#94a3b8', textTransform: 'uppercase', display: 'block' }}>
-            RECOMMENDED DOCK ACTION
-          </span>
-          <strong style={{ fontSize: '0.95rem', color: verdictColor, fontFamily: 'monospace' }}>
-            {report.recommendedAction}
-          </strong>
+        <div>
+          <div className="kv-label">Purchase order</div>
+          <div className="kv-value mono">{report.poNumber}</div>
         </div>
-      </div>
-
-      {/* Overview Grid */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '14px', marginBottom: '20px' }}>
-        
-        <div className="glass-card" style={{ padding: '14px' }}>
-          <span style={{ fontSize: '0.72rem', color: '#94a3b8', fontWeight: '600', textTransform: 'uppercase', display: 'block' }}>
-            PURCHASE ORDER NUMBER
-          </span>
-          <strong style={{ fontSize: '0.95rem', color: '#f8fafc', fontFamily: 'monospace' }}>
-            {report.poNumber}
-          </strong>
+        <div>
+          <div className="kv-label">Expected SKU</div>
+          <div className="kv-value mono">{report.expectedSku}</div>
         </div>
-
-        <div className="glass-card" style={{ padding: '14px' }}>
-          <span style={{ fontSize: '0.72rem', color: '#94a3b8', fontWeight: '600', textTransform: 'uppercase', display: 'block' }}>
-            EXPECTED SKU / ITEM
-          </span>
-          <strong style={{ fontSize: '0.95rem', color: '#38bdf8', fontFamily: 'monospace' }}>
-            {report.expectedSku}
-          </strong>
+        <div>
+          <div className="kv-label">Supplier</div>
+          <div className="kv-value" title={report.vendor}>{report.vendor}</div>
         </div>
-
-        <div className="glass-card" style={{ padding: '14px' }}>
-          <span style={{ fontSize: '0.72rem', color: '#94a3b8', fontWeight: '600', textTransform: 'uppercase', display: 'block' }}>
-            CLAIMS AUDITED
-          </span>
-          <strong style={{ fontSize: '0.95rem', color: '#f8fafc' }}>
-            {report.claimsSummary?.total || 0} Total ({report.claimsSummary?.verified || 0} Verified, {report.claimsSummary?.challenged || 0} Challenged)
-          </strong>
-        </div>
-
-        <div className="glass-card" style={{ padding: '14px' }}>
-          <span style={{ fontSize: '0.72rem', color: '#94a3b8', fontWeight: '600', textTransform: 'uppercase', display: 'block' }}>
-            EXECUTION DURATION
-          </span>
-          <strong style={{ fontSize: '0.95rem', color: '#34d399', fontFamily: 'monospace' }}>
-            {report.metrics?.totalDurationMs} ms
-          </strong>
-        </div>
-
-      </div>
-
-      {/* Security & Cryptographic Proof Card */}
-      <div className="glass-card" style={{ padding: '16px 20px', background: 'rgba(15, 23, 42, 0.7)', border: '1px solid #334155' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
-          <Lock size={16} color="#10b981" />
-          <h4 style={{ fontSize: '0.88rem', fontWeight: '700', color: '#34d399' }}>
-            Security &amp; Cryptographic Compliance Audit
-          </h4>
-        </div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '8px', fontSize: '0.75rem', color: '#94a3b8' }}>
-          <div>
-            <strong>EXIF Metadata Stripped:</strong> <span style={{ color: '#34d399' }}>YES (GPS &amp; EXIF Tags Removed)</span>
+        <div>
+          <div className="kv-label">Findings</div>
+          <div className="kv-value">
+            <span style={{ color: 'var(--bad-text)' }}>{summary.verified} verified</span>
+            <span className="dim"> · </span>
+            <span style={{ color: 'var(--warn-text)' }}>{summary.challenged} challenged</span>
+            <span className="dim"> · </span>
+            <span style={{ color: 'var(--ok-text)' }}>{summary.rejected} cleared</span>
           </div>
-          <div>
-            <strong>Prompt Injection Filter:</strong> <span style={{ color: '#34d399' }}>ACTIVE (Sanitized)</span>
-          </div>
-          <div>
-            <strong>Blind Verifier Isolation:</strong> <span style={{ color: '#c084fc' }}>STRICT (Isolated Crop Only)</span>
-          </div>
-          <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            <strong>Master SHA-256:</strong> <span style={{ fontFamily: 'monospace', color: '#38bdf8' }}>{report.securityAudit?.cleanImageSha256?.slice(0, 20)}...</span>
+        </div>
+        <div>
+          <div className="kv-label">Inspection ID</div>
+          <div className="kv-value mono" title={`${report.inspectionId} · ${new Date(report.timestamp).toLocaleString()}`}>
+            {report.inspectionId}
           </div>
         </div>
       </div>
 
-    </div>
+      {/* Expected vs observed */}
+      <div className="panel">
+        <div className="panel-header">
+          <div>
+            <div className="panel-title">
+              <ListChecks size={16} />
+              Expected vs observed
+            </div>
+            <div className="panel-subtitle">One row per finding. Select a row to see the full evidence and the role-by-role reasoning.</div>
+          </div>
+          <div className="legend">
+            <span><span className="status-dot status-dot-VERIFIED" />Verified → Exception</span>
+            <span><span className="status-dot status-dot-CHALLENGED" />Challenged → Uncertain</span>
+            <span><span className="status-dot status-dot-REJECTED" />Rejected → cleared</span>
+          </div>
+        </div>
+        <div className="table-responsive">
+          <table className="data-table eo-table">
+            <thead>
+              <tr>
+                <th style={{ width: '18%' }}>Check</th>
+                <th style={{ width: '27%' }}>Expected (PO)</th>
+                <th>Observed</th>
+                <th style={{ width: 120 }}>Result</th>
+                <th style={{ width: 40 }} aria-label="Open evidence" />
+              </tr>
+            </thead>
+            <tbody>
+              {report.debatedClaims.map((claim) => (
+                <tr
+                  key={claim.claimId}
+                  className="row-clickable"
+                  onClick={() => onClaimClick(claim)}
+                  tabIndex={0}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') onClaimClick(claim);
+                  }}
+                >
+                  <td>
+                    <div className="eo-check">{checkName(claim.claimType)}</div>
+                    <div className="xsmall dim mono">{claim.claimId}</div>
+                  </td>
+                  <td className="eo-expected">{claim.poExpected || '—'}</td>
+                  <td className={`eo-observed s-${claim.status}`}>{claim.physicalObserved || '—'}</td>
+                  <td><ClaimStatusPill status={claim.status} /></td>
+                  <td className="dim"><ChevronRight size={16} /></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <div className="panel-footer xsmall muted" data-testid="quantity-summary">
+          Expected quantity <strong className="mono" style={{ color: 'var(--text-main)' }}>{report.expectedQuantity}</strong>
+          {' · '}Observed <strong className="mono" style={{ color: 'var(--text-main)' }}>{verified ? observed.itemsDetected : '— (not assessed)'}</strong>
+          {qtyDiff !== null && (
+            <>
+              {' · '}Difference <strong className="mono" style={{ color: qtyDiff === 0 ? 'var(--ok-text)' : 'var(--warn-text)' }}>{qtyDiff > 0 ? `+${qtyDiff}` : qtyDiff}</strong>
+            </>
+          )}
+          {' · '}Variant <strong style={{ color: 'var(--text-main)' }}>{po.expectedVariant || '—'}</strong>
+          {po.expectedComponents && po.expectedComponents.length > 0 && <>{' · '}Kit: {po.expectedComponents.join(', ')}</>}
+        </div>
+      </div>
+
+      {/* Evidence integrity */}
+      <div className="panel">
+        <div className="panel-header">
+          <div>
+            <div className="panel-title">
+              <ShieldCheck size={16} />
+              Evidence integrity
+            </div>
+            <div className="panel-subtitle">
+              SHA-256 content hashes let anyone check that the photo and crops have not changed since this inspection.
+            </div>
+          </div>
+          <div className="row" style={{ flexWrap: 'wrap', gap: 6 }}>
+            <span className={`pill ${report.securityAudit?.metadataStripped ? 'pill-ok' : 'pill-neutral'}`}>EXIF stripped</span>
+            <span className={`pill ${report.securityAudit?.textSanitizationApplied ? 'pill-ok' : 'pill-neutral'}`}>Text sanitised</span>
+            <span className={`pill ${report.securityAudit?.isolationProtocolEnforced ? 'pill-ok' : 'pill-neutral'}`}>Blind crop isolation</span>
+          </div>
+        </div>
+        <div className="panel-body grid-2">
+          <HashField label="Uploaded image (raw bytes)" value={report.securityAudit?.rawImageSha256} />
+          <HashField label="Sanitised image (after metadata strip)" value={report.securityAudit?.cleanImageSha256} />
+        </div>
+      </div>
+    </section>
   );
 };
 

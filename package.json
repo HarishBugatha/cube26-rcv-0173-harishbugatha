@@ -11,7 +11,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "canvas-confetti": "^1.9.4",
+    "@anthropic-ai/sdk": "^0.131.0",
     "cors": "^2.8.6",
     "express": "^5.2.1",
     "lucide-react": "^1.48.0",
@@ -22,7 +22,6 @@
     "sharp": "^0.35.5"
   },
   "devDependencies": {
-    "@types/canvas-confetti": "^1.9.0",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
     "@types/multer": "^2.3.0",

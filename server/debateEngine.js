@@ -1,5 +1,6 @@
 const { extractCrop, generateAnnotatedImage } = require('./cropEngine');
 const { computeSha256, sanitizeExtractedText } = require('./security');
+const { normaliseBbox } = require('./visionProvider');
 
 /**
  * PRD-3 DEBATE Adversarial Verification Engine
@@ -17,22 +18,371 @@ const { computeSha256, sanitizeExtractedText } = require('./security');
  */
 
 /**
+ * Resolve the observed physical features the claims are generated from.
+ * Only scenario metadata (built-in test suite) provides observations. No vision
+ * model is configured in this build, so without metadata nothing has been
+ * observed: source is 'NONE' and every observed value is null — the PO values
+ * are never assumed as observations.
+ * Returned in the report as `observedFeatures` so downstream records use the
+ * same quantities the findings were based on.
+ */
+function resolveObservedFeatures(po, scenarioMeta = null) {
+  const expectedQty = Number(po.expectedQuantity) || 1;
+  if (!scenarioMeta) {
+    return {
+      source: 'NONE',
+      expectedQuantity: expectedQty,
+      itemsDetected: null,
+      detectedSku: null,
+      detectedVariant: null,
+      packagingStatus: null,
+      missingComponents: []
+    };
+  }
+  const meta = scenarioMeta;
+  return {
+    source: 'SCENARIO_METADATA',
+    expectedQuantity: expectedQty,
+    itemsDetected: Number(meta.itemsDetected) || expectedQty,
+    detectedSku: meta.detectedSku,
+    detectedVariant: meta.detectedVariant,
+    packagingStatus: meta.packagingStatus,
+    missingComponents: Array.isArray(meta.missingComponents) ? [...meta.missingComponents] : []
+  };
+}
+
+/**
+ * Claim used when no observations exist for an uploaded photo. Every role output
+ * states that it was not run; confidences are 0. The crop and its SHA-256 hash are
+ * real (whole image), so the evidence graph still links back to the stored photo.
+ */
+async function buildVisionUnavailableClaim(po, imageBuffer, cleanImageHash, failureReason = null) {
+  const startTime = Date.now();
+  const bbox = [0, 0, 1, 1];
+  const { cropBase64, cropHash, pixelCoords } = await extractCrop(imageBuffer, bbox, 0);
+  const notRun = failureReason
+    ? `Not run: visual verification did not complete (${failureReason}).`
+    : 'Not run: no vision model is configured, so no visual analysis was performed.';
+  const expectedQty = Number(po.expectedQuantity) || 1;
+
+  return {
+    claimId: 'CLM-VIS-00',
+    claimTitle: 'Independent visual verification unavailable',
+    claimType: 'VISUAL_VERIFICATION_UNAVAILABLE',
+    severity: 'BLOCKING',
+    poExpected: `Visual confirmation of SKU ${po.expectedSku}, quantity ${expectedQty}, variant and packaging condition`,
+    physicalObserved: failureReason
+      ? `Not assessed: the photo was sanitised, hashed and stored, but verification failed (${failureReason})`
+      : 'Not assessed: the photo was sanitised, hashed and stored, but no vision model is configured',
+    bbox,
+    status: 'CHALLENGED',
+    classificationRationale: failureReason
+      ? `Visual verification did not complete (${failureReason}). The evidence is insufficient for a judgment and stays UNCERTAIN; a dock inspector must verify the delivery manually.`
+      : 'No vision model is configured, so the photo could not be compared with the purchase order. The evidence is insufficient for a judgment and stays UNCERTAIN; a dock inspector must verify the delivery manually.',
+    prosecutor: {
+      role: 'PROSECUTOR',
+      thesis: 'No assessment performed',
+      defectType: 'VISUAL_VERIFICATION_UNAVAILABLE',
+      severity: 'BLOCKING',
+      evidenceFocus: 'Entire photo (not analysed)',
+      confidence: 0,
+      arguments: [notRun]
+    },
+    defender: {
+      role: 'DEFENDER',
+      stance: 'NOT_RUN',
+      arguments: [notRun],
+      defensePlausibility: 0,
+      concession: null
+    },
+    blindVerifier: {
+      role: 'BLIND_VERIFIER',
+      protocol: 'STRICT_ISOLATION',
+      promptDelivered: '',
+      inputCropHash: cropHash,
+      inputCropDimensions: `${pixelCoords.width}x${pixelCoords.height}`,
+      observations: [notRun],
+      detectedPhysicalFeatures: [],
+      observationalConfidence: 0,
+      independentVerdict: null
+    },
+    evidence: {
+      cropBase64,
+      cropHash,
+      pixelCoords,
+      masterImageHash: cleanImageHash
+    },
+    metrics: {
+      durationMs: Date.now() - startTime,
+      prosecutorConfidence: 0,
+      defenderPlausibility: 0,
+      blindConfidence: 0
+    }
+  };
+}
+
+// -------------------------------------------------------------
+// Vision-model path (uploaded photos)
+// -------------------------------------------------------------
+
+const CHECK_FOR_CLAIM_TYPE = {
+  QUANTITY_SHORTAGE: 'QUANTITY',
+  QUANTITY_OVERAGE: 'QUANTITY',
+  SKU_MISMATCH: 'SKU',
+  AMBIGUOUS_LABEL: 'SKU',
+  VARIANT_MISMATCH: 'VARIANT',
+  PACKAGING_CRUSH: 'PACKAGING',
+  WATER_DAMAGE: 'PACKAGING',
+  TORN_PACKAGING_BROKEN_SEAL: 'PACKAGING',
+  MISSING_COMPONENT: 'COMPONENTS'
+};
+
+const FULL_IMAGE = [0, 0, 1, 1];
+
+/** A finding the Prosecutor could not determine from the photo. Directly CHALLENGED (insufficient evidence). */
+async function buildUndeterminedClaim(spec, observation, imageBuffer, cleanImageHash) {
+  const startTime = Date.now();
+  const { cropBase64, cropHash, pixelCoords } = await extractCrop(imageBuffer, FULL_IMAGE, 0);
+  const notRun = 'Not run: no finding to verify — the Prosecutor could not determine this from the photo.';
+  return {
+    claimId: spec.id,
+    claimTitle: spec.title,
+    claimType: spec.type,
+    severity: 'BLOCKING',
+    poExpected: spec.poExpected,
+    physicalObserved: 'Not determinable from the photo',
+    bbox: FULL_IMAGE,
+    status: 'CHALLENGED',
+    classificationRationale: `${spec.title}: the photo does not show enough to decide. Insufficient evidence stays UNCERTAIN.`,
+    prosecutor: {
+      role: 'PROSECUTOR',
+      thesis: spec.title,
+      defectType: spec.type,
+      severity: 'BLOCKING',
+      evidenceFocus: 'Entire photo',
+      confidence: observation.overall_confidence,
+      arguments: [`${spec.title}.`]
+    },
+    defender: { role: 'DEFENDER', stance: 'NOT_RUN', arguments: [notRun], defensePlausibility: 0, concession: null },
+    blindVerifier: {
+      role: 'BLIND_VERIFIER',
+      protocol: 'STRICT_ISOLATION',
+      promptDelivered: '',
+      inputCropHash: cropHash,
+      inputCropDimensions: `${pixelCoords.width}x${pixelCoords.height}`,
+      observations: [notRun],
+      detectedPhysicalFeatures: [],
+      observationalConfidence: 0,
+      independentVerdict: null
+    },
+    evidence: { cropBase64, cropHash, pixelCoords, masterImageHash: cleanImageHash },
+    metrics: { durationMs: Date.now() - startTime, prosecutorConfidence: observation.overall_confidence, defenderPlausibility: 0, blindConfidence: 0 }
+  };
+}
+
+function notRunRole(role, reason, extra = {}) {
+  return {
+    role,
+    notRun: true,
+    notRunReason: reason,
+    arguments: [`Not run: ${reason}`],
+    observations: [`Not run: ${reason}`],
+    ...extra
+  };
+}
+
+/**
+ * Runs the three roles with the vision model on an uploaded photo.
+ * Returns { observedFeatures, debatedClaims, reasons } — `reasons` lists every stage that
+ * failed (timeout, API error, refusal, incomplete response). Failures never produce a pass:
+ * a failed Prosecutor yields a single VISUAL_VERIFICATION_UNAVAILABLE claim; a failed
+ * Defender or Blind Verifier marks the affected findings CHALLENGED via classifyClaim.
+ */
+async function runVisionInspection(po, cleanImageBuffer, cleanImageHash, provider) {
+  const reasons = [];
+  const expectedQty = Number(po.expectedQuantity) || 1;
+  const noObservation = { ...resolveObservedFeatures(po, null), source: 'VISION_MODEL' };
+
+  // ROLE 1: PROSECUTOR (one call carrying all checks)
+  let observation;
+  try {
+    observation = await provider.prosecute(cleanImageBuffer, po);
+  } catch (err) {
+    const reason = err && err.message ? err.message : String(err);
+    reasons.push({ stage: 'PROSECUTOR', kind: err.kind || 'API_ERROR', reason });
+    return {
+      observedFeatures: noObservation,
+      debatedClaims: [await buildVisionUnavailableClaim(po, cleanImageBuffer, cleanImageHash, reason)],
+      reasons
+    };
+  }
+
+  if (!observation.image_usable) {
+    const reason = `Photo not usable for inspection${observation.unusable_reason ? `: ${sanitizeExtractedText(observation.unusable_reason)}` : ''}`;
+    reasons.push({ stage: 'PROSECUTOR', kind: 'INSUFFICIENT_EVIDENCE', reason });
+    return {
+      observedFeatures: noObservation,
+      debatedClaims: [await buildVisionUnavailableClaim(po, cleanImageBuffer, cleanImageHash, reason)],
+      reasons
+    };
+  }
+
+  // Observations reported by the model (untrusted text is sanitised); null = not determinable
+  const packaging = observation.packaging_status === 'UNCLEAR' ? null : observation.packaging_status;
+  const observedFeatures = {
+    source: 'VISION_MODEL',
+    expectedQuantity: expectedQty,
+    itemsDetected: observation.items_count_determinable ? observation.items_detected : null,
+    detectedSku: observation.sku_label_readable ? sanitizeExtractedText(observation.detected_sku) : null,
+    detectedVariant: observation.variant_determinable ? sanitizeExtractedText(observation.detected_variant) : null,
+    packagingStatus: packaging,
+    missingComponents: observation.missing_components.map((c) => sanitizeExtractedText(c)).filter(Boolean)
+  };
+
+  // Generate findings with the existing comparison logic. Undeterminable fields are
+  // excluded from comparison here and reported as explicit CHALLENGED findings below.
+  const comparisonMeta = {
+    itemsDetected: observedFeatures.itemsDetected ?? expectedQty,
+    detectedSku: observedFeatures.detectedSku ?? po.expectedSku,
+    detectedVariant: observedFeatures.detectedVariant ?? po.expectedVariant,
+    packagingStatus: observedFeatures.packagingStatus ?? 'INTACT',
+    missingComponents: observedFeatures.missingComponents
+  };
+  const candidateClaims = await extractFeaturesAndGenerateClaims(po, cleanImageBuffer, comparisonMeta);
+
+  const undetermined = [];
+  if (observedFeatures.itemsDetected === null) {
+    undetermined.push({ id: 'CLM-QTY-00', type: 'QUANTITY_UNDETERMINED', title: 'Unit count not determinable from the photo', poExpected: `${expectedQty} Units` });
+  }
+  if (observedFeatures.detectedSku === null) {
+    undetermined.push({ id: 'CLM-SKU-00', type: 'AMBIGUOUS_LABEL', title: 'SKU label not legible in the photo', poExpected: `Legible label matching ${po.expectedSku}` });
+  }
+  if (observedFeatures.detectedVariant === null) {
+    undetermined.push({ id: 'CLM-VAR-00', type: 'VARIANT_UNDETERMINED', title: 'Variant not determinable from the photo', poExpected: po.expectedVariant || 'Standard' });
+  }
+  if (observedFeatures.packagingStatus === null) {
+    undetermined.push({ id: 'CLM-PKG-00', type: 'PACKAGING_UNCLEAR', title: 'Packaging condition not determinable from the photo', poExpected: 'Intact, undamaged packaging' });
+  }
+
+  // Locate each finding using the Prosecutor's bounding boxes (full image when absent)
+  candidateClaims.forEach((claim) => {
+    const check = CHECK_FOR_CLAIM_TYPE[claim.type];
+    const finding = check ? observation.findings.find((f) => f.check === check) : null;
+    claim.bbox = (finding && normaliseBbox(finding.bbox)) || FULL_IMAGE;
+    claim.regionDescription = finding ? sanitizeExtractedText(finding.description) : 'Entire photo';
+    claim.prosecutorConfidence = finding ? finding.confidence : observation.overall_confidence;
+    claim.prosecutorArgument = finding
+      ? sanitizeExtractedText(finding.description)
+      : claim.type === 'NOMINAL_COMPLIANCE'
+        ? 'No difference from the purchase order was found in the photo.'
+        : claim.physicalObserved;
+  });
+
+  // ROLE 2: DEFENDER (one call for all findings, full context)
+  let defense = null;
+  let defenderFailure = null;
+  try {
+    defense = await provider.defend(cleanImageBuffer, candidateClaims);
+  } catch (err) {
+    defenderFailure = err && err.message ? err.message : String(err);
+    reasons.push({ stage: 'DEFENDER', kind: err.kind || 'API_ERROR', reason: defenderFailure });
+  }
+
+  // ROLE 3: BLIND VERIFIER (one isolated call per finding: crop + fixed task only)
+  const debatedClaims = await Promise.all(
+    candidateClaims.map(async (claim) => {
+      const startTime = Date.now();
+      const crop = await extractCrop(cleanImageBuffer, claim.bbox, 0.05);
+
+      const prosecutor = {
+        role: 'PROSECUTOR',
+        thesis: claim.type === 'NOMINAL_COMPLIANCE' ? 'No discrepancy asserted' : `Defect Assertion: ${claim.title}`,
+        defectType: claim.type,
+        severity: claim.severity,
+        evidenceFocus: claim.regionDescription,
+        confidence: claim.prosecutorConfidence,
+        arguments: [claim.prosecutorArgument]
+      };
+
+      let defender;
+      const response = defense ? defense.responses.find((r) => r.claim_id === claim.id) : null;
+      if (response) {
+        defender = {
+          role: 'DEFENDER',
+          stance: response.stance,
+          arguments: response.arguments.map((a) => sanitizeExtractedText(a)),
+          defensePlausibility: response.plausibility,
+          concession: response.stance === 'CONCEDE_DEFECT' ? 'Defender conceded the finding.' : null
+        };
+      } else {
+        defender = notRunRole('DEFENDER', defenderFailure || 'no Defender response for this finding', {
+          stance: 'NOT_RUN',
+          defensePlausibility: 0,
+          concession: null
+        });
+      }
+
+      let blindVerifier;
+      try {
+        const blind = await provider.blindVerify(crop.cropBuffer);
+        blindVerifier = {
+          role: 'BLIND_VERIFIER',
+          protocol: 'STRICT_ISOLATION',
+          promptDelivered: provider.blindVerifierTask,
+          inputCropHash: crop.cropHash,
+          inputCropDimensions: `${crop.pixelCoords.width}x${crop.pixelCoords.height}`,
+          observations: blind.observations.map((o) => sanitizeExtractedText(o)),
+          detectedPhysicalFeatures: [
+            `Damage: ${blind.damage}`,
+            blind.units_count_determinable ? `Units visible: ${blind.units_visible}` : 'Units visible: not determinable',
+            `Empty slots visible: ${blind.empty_slots_visible}`,
+            blind.visible_text ? `Text: ${sanitizeExtractedText(blind.visible_text)}` : null
+          ].filter(Boolean),
+          observationalConfidence: blind.confidence,
+          independentVerdict: blind.anomaly_present === 'YES' ? `ANOMALY_OBSERVED (${blind.damage})` : blind.anomaly_present === 'NO' ? 'NO_ANOMALY_OBSERVED' : 'UNCLEAR',
+          anomalyDetected: blind.anomaly_present === 'YES' ? true : blind.anomaly_present === 'NO' ? false : null
+        };
+      } catch (err) {
+        const reason = err && err.message ? err.message : String(err);
+        reasons.push({ stage: 'BLIND_VERIFIER', kind: err.kind || 'API_ERROR', reason: `${claim.id}: ${reason}` });
+        blindVerifier = notRunRole('BLIND_VERIFIER', reason, {
+          protocol: 'STRICT_ISOLATION',
+          promptDelivered: provider.blindVerifierTask,
+          inputCropHash: crop.cropHash,
+          inputCropDimensions: `${crop.pixelCoords.width}x${crop.pixelCoords.height}`,
+          detectedPhysicalFeatures: [],
+          observationalConfidence: 0,
+          independentVerdict: null,
+          anomalyDetected: null
+        });
+      }
+
+      return assembleDebatedClaim(claim, prosecutor, defender, blindVerifier, crop, cleanImageHash, startTime);
+    })
+  );
+
+  for (const spec of undetermined) {
+    debatedClaims.push(await buildUndeterminedClaim(spec, observation, cleanImageBuffer, cleanImageHash));
+  }
+
+  return { observedFeatures, debatedClaims, reasons };
+}
+
+/**
  * Extract physical features from receiving images & compare with PO
  */
 async function extractFeaturesAndGenerateClaims(po, imageBuffer, scenarioMeta = null) {
   const claims = [];
 
-  // If scenario metadata is provided (from built-in test suite) or detected from analysis
-  const meta = scenarioMeta || {
-    itemsDetected: Number(po.expectedQuantity) || 1,
-    detectedSku: po.expectedSku,
-    detectedVariant: po.expectedVariant,
-    packagingStatus: 'INTACT',
-    missingComponents: []
-  };
+  // Without observations there is nothing to compare; runDebatePipeline reports
+  // this case as VISUAL_VERIFICATION_UNAVAILABLE instead of inventing claims.
+  if (!scenarioMeta) return claims;
 
-  const expectedQty = Number(po.expectedQuantity) || 1;
-  const detectedQty = Number(meta.itemsDetected) || expectedQty;
+  // If scenario metadata is provided (from built-in test suite) or detected from analysis
+  const meta = resolveObservedFeatures(po, scenarioMeta);
+
+  const expectedQty = meta.expectedQuantity;
+  const detectedQty = meta.itemsDetected;
 
   // 1. Quantity Claim Check
   if (detectedQty < expectedQty) {
@@ -507,28 +857,91 @@ Objectively describe:
       break;
   }
 
-  // STEP 5: OBJECTIVE COMPARATOR & CLAIM CLASSIFICATION
-  // Rules:
-  // - VERIFIED: Blind Verifier independently confirms defect observations + Prosecutor confidence > 0.75 + Defender conceded
-  // - REJECTED: Defender disproves or Blind Verifier finds pristine normal condition -> discard claim
-  // - CHALLENGED: Blind Verifier confidence < 0.70 or Defender raised valid ambiguous challenge -> UNCERTAIN
-  let classification = 'VERIFIED';
-  let classificationRationale = '';
+  // STEP 5: OBJECTIVE COMPARATOR & CLAIM CLASSIFICATION (shared rule engine)
+  return assembleDebatedClaim(claim, prosecutor, defender, blindVerifier, { cropBase64, cropHash, pixelCoords }, rawImageHash, startTime);
+}
 
-  if (claim.type === 'NOMINAL_COMPLIANCE') {
-    classification = 'REJECTED'; // Reject defect hypothesis because package is clean
-    classificationRationale = 'Blind verifier confirmed pristine surface; no defect exists.';
-  } else if (claim.type === 'AMBIGUOUS_LABEL' || blindVerifier.observationalConfidence < 0.70 || defender.stance === 'VALID_CHALLENGE') {
-    classification = 'CHALLENGED';
-    classificationRationale = 'Blind verifier reported optical glare and low observational confidence (0.45). Defender raised valid camera flash artifact challenge. Insufficient conclusive evidence for automated verdict.';
-  } else if (blindVerifier.observationalConfidence >= 0.75 && prosecutor.confidence >= 0.75) {
-    classification = 'VERIFIED';
-    classificationRationale = `Blind verifier independently confirmed physical anomaly ("${blindVerifier.independentVerdict}") in isolated crop without PO context. Prosecutor defect assertion is sustained.`;
-  } else {
-    classification = 'REJECTED';
-    classificationRationale = 'Evidence failed to meet statistical confidence threshold; claim rejected.';
+/**
+ * Rule engine: classifies one finding from the three role outputs.
+ * Used by both the scripted scenario fixtures and the vision-model path.
+ *
+ * - CHALLENGED: any role did not run / failed; ambiguous label; Blind Verifier confidence < 0.70;
+ *   Defender raised a valid challenge; the Blind Verifier did not independently confirm the
+ *   anomaly (vision path); or evidence below the VERIFIED thresholds (insufficient evidence).
+ * - VERIFIED: Blind Verifier ≥ 0.75 and Prosecutor ≥ 0.75 confidence (and, on the vision path,
+ *   the Blind Verifier independently saw an anomaly).
+ * - REJECTED: nominal (no-defect) finding where the Blind Verifier saw no anomaly.
+ *
+ * `blindVerifier.anomalyDetected` is set only by the vision path (true / false / null);
+ * scripted fixtures leave it undefined, which keeps their outcomes unchanged.
+ */
+function classifyClaim(claim, prosecutor, defender, blindVerifier) {
+  const blindSays = blindVerifier.anomalyDetected;
+  const isVision = blindSays !== undefined;
+  const conf = blindVerifier.observationalConfidence;
+
+  const notRun = [prosecutor, defender, blindVerifier].filter((r) => r.notRun);
+  if (notRun.length > 0 || defender.stance === 'NOT_RUN') {
+    const reasons = notRun.map((r) => `${r.role}: ${r.notRunReason || 'not run'}`).join('; ');
+    return {
+      classification: 'CHALLENGED',
+      rationale: `Verification incomplete (${reasons || 'Defender not run'}). Evidence is insufficient for an automated verdict.`
+    };
   }
 
+  if (claim.type === 'NOMINAL_COMPLIANCE') {
+    if (!isVision) {
+      return { classification: 'REJECTED', rationale: 'Blind verifier confirmed pristine surface; no defect exists.' };
+    }
+    if (blindSays === false && conf >= 0.70) {
+      return {
+        classification: 'REJECTED',
+        rationale: `Blind verifier independently saw no anomaly in the photo (confidence ${conf.toFixed(2)}); no defect hypothesis remains.`
+      };
+    }
+    return {
+      classification: 'CHALLENGED',
+      rationale:
+        blindSays === true
+          ? `Blind verifier independently reported a possible anomaly ("${blindVerifier.independentVerdict}") that the Prosecutor did not raise.`
+          : `Blind verifier could not confirm a clean condition (confidence ${isFinite(conf) ? conf.toFixed(2) : 'n/a'}).`
+    };
+  }
+
+  if (claim.type === 'AMBIGUOUS_LABEL' || conf < 0.70 || defender.stance === 'VALID_CHALLENGE') {
+    return {
+      classification: 'CHALLENGED',
+      rationale: isVision
+        ? `Insufficient evidence: Blind verifier confidence ${conf.toFixed(2)}${defender.stance === 'VALID_CHALLENGE' ? '; Defender raised a valid challenge' : ''}${claim.type === 'AMBIGUOUS_LABEL' ? '; label not legible' : ''}.`
+        : 'Blind verifier reported optical glare and low observational confidence (0.45). Defender raised valid camera flash artifact challenge. Insufficient conclusive evidence for automated verdict.'
+    };
+  }
+
+  if (isVision && blindSays !== true) {
+    return {
+      classification: 'CHALLENGED',
+      rationale: `Blind verifier did not independently confirm an anomaly in the isolated crop (${blindSays === false ? 'saw none' : 'unclear'}); the finding is not sustained automatically.`
+    };
+  }
+
+  if (conf >= 0.75 && prosecutor.confidence >= 0.75) {
+    return {
+      classification: 'VERIFIED',
+      rationale: `Blind verifier independently confirmed physical anomaly ("${blindVerifier.independentVerdict}") in isolated crop without PO context. Prosecutor defect assertion is sustained.`
+    };
+  }
+
+  // Below the VERIFIED thresholds: insufficient evidence is UNCERTAIN, never a silent pass
+  return {
+    classification: 'CHALLENGED',
+    rationale: 'Evidence did not meet the confidence thresholds for a verified finding; insufficient evidence for an automated verdict.'
+  };
+}
+
+function assembleDebatedClaim(claim, prosecutor, defender, blindVerifier, crop, masterImageHash, startTime) {
+  const { classification, rationale } = classifyClaim(claim, prosecutor, defender, blindVerifier);
+  const { cropBase64, cropHash, pixelCoords } = crop;
+  const classificationRationale = rationale;
   const durationMs = Date.now() - startTime;
 
   return {
@@ -548,7 +961,7 @@ Objectively describe:
       cropBase64,
       cropHash,
       pixelCoords,
-      masterImageHash: rawImageHash
+      masterImageHash
     },
     metrics: {
       durationMs,
@@ -568,7 +981,7 @@ Objectively describe:
  * @param {string} rawImageHash - SHA-256 hash of raw upload before sanitization
  * @param {Object} scenarioMeta - Optional scenario metadata
  */
-async function runDebatePipeline(po, cleanImageBuffer, cleanImageHash, rawImageHash, scenarioMeta = null) {
+async function runDebatePipeline(po, cleanImageBuffer, cleanImageHash, rawImageHash, scenarioMeta = null, options = {}) {
   // Overload: Support direct invocation with full scenario fixture object
   if (po && po.po && (!cleanImageBuffer || typeof cleanImageBuffer === 'string')) {
     const { getScenarioImageBuffer } = require('./scenarios');
@@ -579,15 +992,47 @@ async function runDebatePipeline(po, cleanImageBuffer, cleanImageHash, rawImageH
   }
 
   const pipelineStart = Date.now();
+  let debatedClaims = [];
+  let observedFeatures;
+  let verification;
 
-  // 1. Feature Extraction & Claim Generation
-  const candidateClaims = await extractFeaturesAndGenerateClaims(po, cleanImageBuffer, scenarioMeta);
-
-  // 2. Run Adversarial 3-Role DEBATE on each claim
-  const debatedClaims = [];
-  for (const claim of candidateClaims) {
-    const debatedClaim = await executeDebateRoleWorkflow(claim, po, cleanImageBuffer, cleanImageHash);
-    debatedClaims.push(debatedClaim);
+  if (scenarioMeta) {
+    // Scenario fixtures (deterministic test/demo data): scripted roles
+    const candidateClaims = await extractFeaturesAndGenerateClaims(po, cleanImageBuffer, scenarioMeta);
+    for (const claim of candidateClaims) {
+      debatedClaims.push(await executeDebateRoleWorkflow(claim, po, cleanImageBuffer, cleanImageHash));
+    }
+    observedFeatures = resolveObservedFeatures(po, scenarioMeta);
+    verification = { status: 'COMPLETE', mode: 'SCENARIO_FIXTURE', reasons: [] };
+  } else if (options.visionProvider) {
+    // Uploaded photo inspected by the vision model (Prosecutor, Defender, Blind Verifier)
+    const result = await runVisionInspection(po, cleanImageBuffer, cleanImageHash, options.visionProvider);
+    debatedClaims = result.debatedClaims;
+    observedFeatures = result.observedFeatures;
+    verification = {
+      status: result.reasons.length > 0 ? 'INCOMPLETE' : 'COMPLETE',
+      mode: 'VISION_MODEL',
+      model: options.visionProvider.model,
+      reasons: result.reasons
+    };
+  } else {
+    // No observations (no vision model configured): do not run the scripted roles and do
+    // not report a match. One CHALLENGED claim states that visual verification was
+    // unavailable, which the decision rules below turn into UNCERTAIN.
+    const reason = options.unavailableReason || 'No vision model is configured (ANTHROPIC_API_KEY is not set).';
+    debatedClaims.push(await buildVisionUnavailableClaim(po, cleanImageBuffer, cleanImageHash, options.unavailableReason));
+    observedFeatures = resolveObservedFeatures(po, null);
+    verification = {
+      status: 'INCOMPLETE',
+      mode: options.failedMode || 'NONE',
+      reasons: [
+        {
+          stage: options.failedMode === 'VISION_MODEL' ? 'PIPELINE' : 'CONFIGURATION',
+          kind: options.unavailableKind || 'NOT_CONFIGURED',
+          reason
+        }
+      ]
+    };
   }
 
   // 3. Apply Decision Logic Rules:
@@ -609,7 +1054,17 @@ async function runDebatePipeline(po, cleanImageBuffer, cleanImageHash, rawImageH
   } else if (hasChallengedClaim) {
     finalVerdict = 'UNCERTAIN';
     recommendedAction = 'MANUAL_INSPECTION_REQUIRED';
-    decisionRationale = 'Adversarial verification encountered ambiguous visual evidence (glare/occlusion). Blind verifier flagged observational uncertainty. Requires human dock inspector sign-off.';
+    if (verification.mode === 'NONE') {
+      decisionRationale = options.unavailableReason
+        ? `Independent visual verification is unavailable: ${options.unavailableReason} The photo was not compared with the purchase order; a human dock inspector must verify the delivery.`
+        : 'Independent visual verification is unavailable (no vision model configured). The photo was not compared with the purchase order; a human dock inspector must verify the delivery.';
+    } else if (verification.status === 'INCOMPLETE') {
+      decisionRationale = `Verification was not completed (${verification.reasons.map((r) => `${r.stage}: ${r.reason}`).join('; ')}). The result is UNCERTAIN; a human dock inspector must verify the delivery.`;
+    } else if (verification.mode === 'VISION_MODEL') {
+      decisionRationale = 'One or more findings could not be determined or independently confirmed from the photo. Requires human dock inspector sign-off.';
+    } else {
+      decisionRationale = 'Adversarial verification encountered ambiguous visual evidence (glare/occlusion). Blind verifier flagged observational uncertainty. Requires human dock inspector sign-off.';
+    }
   }
 
   // 4. Generate Visual Bounding Box Annotation
@@ -630,6 +1085,8 @@ async function runDebatePipeline(po, cleanImageBuffer, cleanImageHash, rawImageH
     vendor: po.vendor || 'N/A',
     expectedSku: po.expectedSku,
     expectedQuantity: po.expectedQuantity,
+    observedFeatures,
+    verification,
     finalVerdict, // 'EXCEPTION' | 'UNCERTAIN' | 'ACCEPT'
     recommendedAction,
     decisionRationale,
@@ -800,6 +1257,9 @@ function buildEvidenceGraph(verdict, debatedClaims, cleanImageHash, rawImageHash
 }
 
 module.exports = {
+  classifyClaim,
+  runVisionInspection,
+  resolveObservedFeatures,
   extractFeaturesAndGenerateClaims,
   executeDebateRoleWorkflow,
   runDebatePipeline,
