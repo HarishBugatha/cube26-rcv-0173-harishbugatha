@@ -45,6 +45,8 @@ export const CHECK_NAMES: Record<string, string> = {
   VISUAL_VERIFICATION_UNAVAILABLE: 'Visual verification',
   QUANTITY_UNDETERMINED: 'Quantity',
   VARIANT_UNDETERMINED: 'Variant / spec',
+  COMPONENTS_UNDETERMINED: 'Kit completeness',
+  UNRECONCILED_FINDING: 'Unreconciled finding',
   PACKAGING_UNCLEAR: 'Carton condition',
 };
 

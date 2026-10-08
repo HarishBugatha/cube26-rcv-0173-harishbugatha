@@ -57,17 +57,17 @@ export const CrossPodExportModal: React.FC<CrossPodExportModalProps> = ({
       <div className="modal-content" style={{ maxWidth: '720px' }}>
         <div className="modal-header">
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-            <FileJson size={20} style={{ color: '#38bdf8' }} />
+            <FileJson size={20} style={{ color: 'var(--info-text)' }} />
             <div>
-              <h2 style={{ fontSize: '1.05rem', fontWeight: 700, color: '#f8fafc' }}>
+              <h2 style={{ fontSize: '1.05rem', fontWeight: 700, color: 'var(--text-main)' }}>
                 Cross-Pod Evidence Contract Payload
               </h2>
-              <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
+              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
                 Stage 01 Receiving ➔ Feeds Prep (02) and Recovery (05) Managers
               </div>
             </div>
           </div>
-          <button onClick={onClose} style={{ color: '#94a3b8' }} aria-label="Close Modal">
+          <button onClick={onClose} style={{ color: 'var(--text-muted)' }} aria-label="Close Modal">
             <X size={20} />
           </button>
         </div>
@@ -76,25 +76,25 @@ export const CrossPodExportModal: React.FC<CrossPodExportModalProps> = ({
           <div
             style={{
               padding: '0.75rem 1rem',
-              backgroundColor: '#0a0f1d',
+              backgroundColor: 'var(--bg-inset)',
               border: '1px solid var(--border-subtle)',
               borderRadius: 'var(--radius-sm)',
               marginBottom: '1rem',
               fontSize: '0.8rem',
-              color: '#cbd5e1',
+              color: 'var(--text-main)',
             }}
           >
-            <strong>Standard Evidence Interoperability:</strong> This contract binds the physical inspection verdict to unit <code className="font-mono" style={{ color: '#38bdf8' }}>{record.unitId}</code>. Downstream pods consume this record to either enforce prep compliance or dispute supplier shortages.
+            <strong>Standard Evidence Interoperability:</strong> This contract binds the physical inspection verdict to unit <code className="font-mono" style={{ color: 'var(--info-text)' }}>{record.unitId}</code>. Downstream pods consume this record to either enforce prep compliance or dispute supplier shortages.
           </div>
 
           <pre
             className="font-mono"
             style={{
-              backgroundColor: '#070b14',
+              backgroundColor: 'var(--bg-inset)',
               padding: '1rem',
               borderRadius: 'var(--radius-sm)',
-              border: '1px solid #1e293b',
-              color: '#34d399',
+              border: '1px solid var(--bg-card-subtle)',
+              color: 'var(--ok-text)',
               fontSize: '0.785rem',
               maxHeight: '380px',
               overflowY: 'auto',
@@ -107,7 +107,7 @@ export const CrossPodExportModal: React.FC<CrossPodExportModalProps> = ({
 
         <div className="modal-footer">
           <button className="btn-secondary" onClick={handleCopy}>
-            {copied ? <Check size={16} style={{ color: '#10b981' }} /> : <Copy size={16} />}
+            {copied ? <Check size={16} style={{ color: 'var(--ok)' }} /> : <Copy size={16} />}
             {copied ? 'Copied to Clipboard' : 'Copy JSON'}
           </button>
           <button className="btn-primary" onClick={handleDownload}>

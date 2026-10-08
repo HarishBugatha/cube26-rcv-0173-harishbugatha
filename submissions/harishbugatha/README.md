@@ -24,14 +24,14 @@
 | **10 PRD Visual Scenarios** | Generated SVG/PNG visuals with scripted observation metadata (not a real-photo evaluation set) | [`server/scenarios.js`](../../server/scenarios.js) | ✅ Complete |
 | **Interactive Evidence Graph** | Visual DAG linking Verdict ➔ Claim ➔ Roles ➔ Crop ROI ➔ SHA-256 | [`src/components/EvidenceGraph.tsx`](../../src/components/EvidenceGraph.tsx) | ✅ Complete |
 | **Interactive Debate Visualizer** | Live 3-role progression display with confidence gauges and stance tags | [`src/components/DebatePipelineVisualizer.tsx`](../../src/components/DebatePipelineVisualizer.tsx) | ✅ Complete |
-| **Visual Evidence Viewer** | High-res receiving photo viewer with normalized ROI bounding boxes | [`src/components/VisualEvidenceViewer.tsx`](../../src/components/VisualEvidenceViewer.tsx) | ✅ Complete |
+| **Live Photo Stage** | Delivery photo with live scan line and finding regions drawn as the agents report them | [`src/components/PhotoStage.tsx`](../../src/components/PhotoStage.tsx) | ✅ Complete |
 | **Adversarial Dossier Modal** | Crop zoom, SHA-256 content hashes of the image and crop, role-by-role reasoning | [`src/components/DossierModal.tsx`](../../src/components/DossierModal.tsx) | ✅ Complete |
 | **Structured Report & Export** | Exportable JSON audit contract and printable HTML receiving dossier | [`src/components/StructuredReportView.tsx`](../../src/components/StructuredReportView.tsx) | ✅ Complete |
 | **Tenancy Isolation Service** | Application-level filtering by organisation for `org_demo_alpha` & `org_demo_bravo` (no database RLS) | [`src/services/dataService.ts`](../../src/services/dataService.ts) | ✅ Complete |
 | **Cross-Pod Evidence Contract** | JSON contract feeding 02 Prep and 05 Recovery | [`src/components/CrossPodExportModal.tsx`](../../src/components/CrossPodExportModal.tsx) | ✅ Complete |
 | **Operator Override Audit** | Captures operator overrides with mandatory reasons ("overrides are data") | [`src/components/OverrideModal.tsx`](../../src/components/OverrideModal.tsx) | ✅ Complete |
 | **Integrity (hash chain)** | SHA-256 record content hashes, per-organisation hash chain, integrity verification, persisted in browser storage | [`src/services/dataService.ts`](../../src/services/dataService.ts) | ✅ Complete (tamper detection, not immutability) |
-| **Unit & Integration Test Suite** | 103 tests: classification, 10 scenarios, record consistency, vision fail-open, Blind Verifier isolation, report tenant isolation, hash chain, persistence | [`tests/`](../../tests/) | ✅ 103/103 passing |
+| **Unit & Integration Test Suite** | 127 tests: classification, vision-path regressions, 10 scenarios, record consistency, vision fail-open, Blind Verifier isolation, report tenant isolation, hash chain, persistence | [`tests/`](../../tests/) | ✅ 127/127 passing |
 
 ---
 

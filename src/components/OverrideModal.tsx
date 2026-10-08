@@ -65,17 +65,17 @@ export const OverrideModal: React.FC<OverrideModalProps> = ({
       <div className="modal-content" style={{ maxWidth: '600px' }}>
         <div className="modal-header">
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-            <ShieldAlert size={20} style={{ color: '#f59e0b' }} />
+            <ShieldAlert size={20} style={{ color: 'var(--warn)' }} />
             <div>
-              <h2 style={{ fontSize: '1.05rem', fontWeight: 700, color: '#f8fafc' }}>
+              <h2 style={{ fontSize: '1.05rem', fontWeight: 700, color: 'var(--text-main)' }}>
                 Operator Judgment Override
               </h2>
-              <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
+              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
                 Engineering Honesty Rule: Overrides are preserved as data.
               </div>
             </div>
           </div>
-          <button onClick={onClose} style={{ color: '#94a3b8' }} aria-label="Close modal">
+          <button onClick={onClose} style={{ color: 'var(--text-muted)' }} aria-label="Close modal">
             <X size={20} />
           </button>
         </div>
@@ -85,7 +85,7 @@ export const OverrideModal: React.FC<OverrideModalProps> = ({
             <div
               style={{
                 padding: '0.75rem 1rem',
-                backgroundColor: '#0a0f1d',
+                backgroundColor: 'var(--bg-inset)',
                 border: '1px solid var(--border-subtle)',
                 borderRadius: 'var(--radius-sm)',
                 marginBottom: '1.25rem',
@@ -93,13 +93,13 @@ export const OverrideModal: React.FC<OverrideModalProps> = ({
               }}
             >
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.35rem' }}>
-                <span style={{ color: '#94a3b8' }}>Record ID / Unit:</span>
-                <span className="font-mono" style={{ color: '#38bdf8', fontWeight: 600 }}>
+                <span style={{ color: 'var(--text-muted)' }}>Record ID / Unit:</span>
+                <span className="font-mono" style={{ color: 'var(--info-text)', fontWeight: 600 }}>
                   {record.recordId} ({record.unitId})
                 </span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ color: '#94a3b8' }}>Automated Agent Verdict:</span>
+                <span style={{ color: 'var(--text-muted)' }}>Automated Agent Verdict:</span>
                 <DiscrepancyBadge status={record.status} size="sm" />
               </div>
             </div>
@@ -142,8 +142,8 @@ export const OverrideModal: React.FC<OverrideModalProps> = ({
               {error && <div className="form-error-msg">{error}</div>}
             </div>
 
-            <div style={{ fontSize: '0.75rem', color: '#64748b' }}>
-              Authorized by active operator: <strong style={{ color: '#cbd5e1' }}>{activeOperatorId}</strong>. The record's SHA-256 content hash is recalculated and an override entry (original verdict, new verdict, reason) is appended to the audit hash chain.
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-dim)' }}>
+              Authorized by active operator: <strong style={{ color: 'var(--text-main)' }}>{activeOperatorId}</strong>. The record's SHA-256 content hash is recalculated and an override entry (original verdict, new verdict, reason) is appended to the audit hash chain.
             </div>
           </div>
 

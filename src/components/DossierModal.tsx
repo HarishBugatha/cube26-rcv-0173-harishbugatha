@@ -67,7 +67,7 @@ export const DossierModal: React.FC<DossierModalProps> = ({ claim, onClose, mast
           </div>
 
           <div className={`notice ${claim.status === 'VERIFIED' ? 'notice-error' : claim.status === 'REJECTED' ? 'notice-success' : ''}`}
-            style={claim.status === 'CHALLENGED' ? { borderColor: 'var(--warn-border)', background: 'var(--warn-bg)', color: '#fde68a' } : undefined}
+            style={claim.status === 'CHALLENGED' ? { borderColor: 'var(--warn-border)', background: 'var(--warn-bg)', color: 'var(--warn-text)' } : undefined}
           >
             <div>
               <strong>Why this result: </strong>

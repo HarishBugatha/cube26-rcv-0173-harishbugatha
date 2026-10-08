@@ -1,33 +1,23 @@
-import React, { useState, useEffect, useRef } from 'react';
-import {
-  Play,
-  RefreshCw,
-  RotateCcw,
-  ScanSearch,
-  AlertCircle,
-  X,
-  UploadCloud,
-  Info,
-  Layers,
-} from 'lucide-react';
+import React, { useEffect, useMemo, useReducer, useRef, useState } from 'react';
+import { Play, RotateCcw, Square, AlertCircle, X, UploadCloud, Layers, Plus, Info } from 'lucide-react';
 import {
   PRDScenario,
   PRDScenarioPo,
   DebateInspectionReport,
   DebatedClaim,
   ReceivingRecord,
-  TenantId
+  TenantId,
 } from '../types/receiving';
 import { buildRecordFromInspection, buildPendingRecordFromInspection, isVisuallyVerified } from '../services/inspectionRecord';
+import { streamInspection, InspectionRequestError } from '../services/inspectionStream';
 import ScenarioSelector from '../components/ScenarioSelector';
-import POEditorPanel from '../components/POEditorPanel';
-import VisualEvidenceViewer from '../components/VisualEvidenceViewer';
+import PhotoStage, { StageBox, isWholeFrame } from '../components/PhotoStage';
+import LiveRun, { initialRun, runReducer } from '../components/LiveRun';
 import DebatePipelineVisualizer from '../components/DebatePipelineVisualizer';
 import EvidenceGraph from '../components/EvidenceGraph';
 import DossierModal from '../components/DossierModal';
 import StructuredReportView from '../components/StructuredReportView';
 import InspectionHistory, { InspectionHistoryEntry } from '../components/InspectionHistory';
-import { EmptyState } from '../components/ui';
 
 interface DebateWorkspaceViewProps {
   tenantId: TenantId;
@@ -41,37 +31,32 @@ interface DebateWorkspaceViewProps {
   onInspectionIngested: (inspectionId: string, recordId: string) => void;
 }
 
-const DEFAULT_PO: PRDScenarioPo = {
-  poNumber: 'PO-2026-9041',
-  vendor: 'MetaOptics Global Ltd',
-  expectedSku: 'SKU-VR-8800',
-  productName: 'Spatial Computing Headset Pro',
-  expectedQuantity: 4,
-  expectedVariant: 'Matte Titanium / 256GB',
-  expectedComponents: ['HMD Unit', '2x Hand Controllers', 'USB-C 45W Adapter', 'High-Speed Tether Cable'],
-  carrierTracking: '1Z9999999999999999',
-  notes: 'Verify pristine retail seal on all 4 master boxes.'
+/** A real delivery starts with an empty order: the operator enters what was ordered. */
+const EMPTY_PO: PRDScenarioPo = {
+  poNumber: '',
+  vendor: '',
+  expectedSku: '',
+  productName: '',
+  expectedQuantity: 1,
+  expectedVariant: '',
+  expectedComponents: [],
+  carrierTracking: '',
+  notes: '',
 };
 
-const readErrorMessage = async (res: Response): Promise<string> => {
-  try {
-    const text = await res.text();
-    if (text) {
-      try {
-        const parsed = JSON.parse(text);
-        return parsed.error || parsed.message || `Server returned status ${res.status}.`;
-      } catch {
-        if (!text.trimStart().startsWith('<')) return text.slice(0, 200);
-      }
-    }
-  } catch {
-    // fall through
+const ACCEPTED_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/tiff'];
+const MAX_BYTES = 15 * 1024 * 1024;
+
+function checkFile(file: File): string | null {
+  if (!ACCEPTED_TYPES.includes(file.type)) {
+    const heic = /heic|heif/i.test(file.type) || /\.(heic|heif)$/i.test(file.name);
+    return heic
+      ? 'HEIC photos (iPhone default) are not supported. Export the photo as JPEG, or set the camera to "Most Compatible".'
+      : `"${file.name}" is not a JPEG, PNG, WEBP or TIFF image.`;
   }
-  if (res.status === 502 || res.status === 504) {
-    return 'The verification server is not reachable. Start it with "node server/server.js" (port 3001).';
-  }
-  return `The server returned an error (status ${res.status}). Check the server log for details.`;
-};
+  if (file.size > MAX_BYTES) return `"${file.name}" is ${(file.size / 1048576).toFixed(1)} MB; the limit is 15 MB.`;
+  return null;
+}
 
 export const DebateWorkspaceView: React.FC<DebateWorkspaceViewProps> = ({
   tenantId,
@@ -82,298 +67,274 @@ export const DebateWorkspaceView: React.FC<DebateWorkspaceViewProps> = ({
   openInspectionId,
   onOpenInspection,
   onInspectionComplete,
-  onInspectionIngested
+  onInspectionIngested,
 }) => {
+  const [mode, setMode] = useState<'upload' | 'scenario'>('upload');
   const [scenarios, setScenarios] = useState<PRDScenario[]>([]);
   const [scenariosError, setScenariosError] = useState<string | null>(null);
-  const [visionModel, setVisionModel] = useState<string | null>(null);
+  const [scenarioId, setScenarioId] = useState('scenario-1-correct');
+  const [scenarioImage, setScenarioImage] = useState('');
 
-  // Ask the server whether a vision model is configured (shown in upload mode)
-  useEffect(() => {
-    fetch('/api/health')
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => setVisionModel(data?.vision?.configured ? data.vision.model : null))
-      .catch(() => setVisionModel(null));
-  }, []);
-  const [selectedScenarioId, setSelectedScenarioId] = useState<string>('scenario-1-correct');
-  const [currentPo, setCurrentPo] = useState<PRDScenarioPo>(DEFAULT_PO);
-
-  const [isCustomMode, setIsCustomMode] = useState<boolean>(false);
-  const [customFile, setCustomFile] = useState<File | null>(null);
+  const [file, setFile] = useState<File | null>(null);
+  const [fileUrl, setFileUrl] = useState('');
   const [dragActive, setDragActive] = useState(false);
+  const [uploadPo, setUploadPo] = useState<PRDScenarioPo>(EMPTY_PO);
+  const [scenarioPo, setScenarioPo] = useState<PRDScenarioPo>(EMPTY_PO);
+  const [componentDraft, setComponentDraft] = useState('');
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
 
-  const [currentImageBase64, setCurrentImageBase64] = useState<string>('');
-  const [annotatedImageBase64, setAnnotatedImageBase64] = useState<string>('');
-  const [currentSha256, setCurrentSha256] = useState<string>('');
-
-  const [isLoading, setIsLoading] = useState<boolean>(false);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [run, dispatch] = useReducer(runReducer, initialRun);
   const [report, setReport] = useState<DebateInspectionReport | null>(null);
-  const [selectedDossierClaim, setSelectedDossierClaim] = useState<DebatedClaim | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [dossierClaim, setDossierClaim] = useState<DebatedClaim | null>(null);
+  const [naturalSize, setNaturalSize] = useState<{ w: number; h: number } | undefined>();
+  const [restoredImage, setRestoredImage] = useState<string | null>(null);
 
-  const appliedInspectionRef = useRef<string | null>(null);
-  const initialOpenRef = useRef<string | null>(openInspectionId);
+  const abortRef = useRef<AbortController | null>(null);
+  const appliedRef = useRef<string | null>(null);
   const resultsRef = useRef<HTMLDivElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
+  const po = mode === 'upload' ? uploadPo : scenarioPo;
+  const setPo = mode === 'upload' ? setUploadPo : setScenarioPo;
+  const running = run.phase === 'running';
+  const photo = restoredImage ?? (mode === 'upload' ? fileUrl : scenarioImage);
   const historyEntry = report ? history.find((h) => h.report.inspectionId === report.inspectionId) : undefined;
-  const ingested = !!historyEntry?.ingested;
-  const selectedScenarioDetails = scenarios.find(s => s.id === selectedScenarioId);
+  const scenario = scenarios.find((s) => s.id === scenarioId);
 
-  // Fetch all scenarios from backend API
+  // Scenario list (test fixtures)
   useEffect(() => {
-    const fetchScenarios = async () => {
-      try {
-        const res = await fetch('/api/scenarios');
-        if (!res.ok) {
-          setScenariosError(await readErrorMessage(res));
-          return;
-        }
-        const data = await res.json();
-        const scenariosList: PRDScenario[] = Array.isArray(data) ? data : (data.scenarios || []);
-        setScenarios(scenariosList);
+    fetch('/api/scenarios')
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`status ${r.status}`))))
+      .then((d) => {
+        setScenarios(d.scenarios || []);
         setScenariosError(null);
-        if (scenariosList.length > 0 && !initialOpenRef.current) {
-          await loadScenario(scenariosList[0].id, scenariosList[0]);
-        }
-      } catch (err) {
-        console.warn('Backend server not reachable on /api/scenarios:', err);
-        setScenariosError('The verification server is not reachable. Start it with "node server/server.js" (port 3001).');
-      }
-    };
-    fetchScenarios();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+      })
+      .catch(() => setScenariosError('The inspection server is not reachable. Start it with "node server/server.js" (port 3001).'));
   }, []);
 
-  const restoreEntry = (entry: InspectionHistoryEntry) => {
-    appliedInspectionRef.current = entry.report.inspectionId;
-    setReport(entry.report);
-    setCurrentPo({ ...entry.po });
-    setIsCustomMode(!!entry.report.isCustomUpload);
-    if (entry.report.scenarioId) setSelectedScenarioId(entry.report.scenarioId);
-    setCurrentImageBase64(entry.rawImageUrl);
-    setAnnotatedImageBase64(entry.report.annotatedImageBase64 || '');
-    setCurrentSha256(entry.report.securityAudit?.cleanImageSha256 || '');
+  useEffect(() => {
+    if (mode !== 'scenario') return;
+    let alive = true;
+    fetch(`/api/scenarios/${scenarioId}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (!alive || !d?.scenario) return;
+        setScenarioImage(d.scenario.imageDataUrl || '');
+        setScenarioPo({ ...EMPTY_PO, ...d.scenario.po });
+      })
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, [mode, scenarioId]);
+
+  // ponytail: object URLs of earlier uploads are kept (history entries show them); fine for a session
+  // Cancel an in-flight run when leaving the page
+  useEffect(() => () => abortRef.current?.abort(), []);
+
+  const clearResult = () => {
+    // Detach first so the cancelled run's late callbacks see they are stale and stay silent
+    const pending = abortRef.current;
+    abortRef.current = null;
+    pending?.abort();
+    dispatch({ type: 'reset' });
+    setReport(null);
     setErrorMessage(null);
+    setRestoredImage(null);
+    appliedRef.current = null;
   };
 
-  // Open an inspection requested from elsewhere (dashboard / history), or reset for a new one
+  const restoreEntry = (inspectionId: string) => {
+    const entry = history.find((h) => h.report.inspectionId === inspectionId);
+    if (!entry) return;
+    clearResult(); // also cancels any run in flight
+    appliedRef.current = inspectionId;
+    setReport(entry.report);
+    setRestoredImage(entry.rawImageUrl);
+  };
+
+  // Open an inspection from history / dashboard
   useEffect(() => {
-    if (openInspectionId === appliedInspectionRef.current) return;
-    appliedInspectionRef.current = openInspectionId;
-    if (openInspectionId) {
-      const entry = history.find((h) => h.report.inspectionId === openInspectionId);
-      if (entry) restoreEntry(entry);
-    } else {
-      setReport(null);
-      setAnnotatedImageBase64('');
+    if (openInspectionId === appliedRef.current) return;
+    if (!openInspectionId) {
+      if (appliedRef.current) clearResult();
+      return;
     }
+    restoreEntry(openInspectionId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [openInspectionId]);
 
-  const loadScenario = async (scenarioId: string, fallback?: PRDScenario) => {
-    try {
-      const res = await fetch(`/api/scenarios/${scenarioId}`);
-      if (res.ok) {
-        const data = await res.json();
-        const scenario: PRDScenario = data.scenario || data;
-        setCurrentPo({ ...scenario.po });
-        setCurrentImageBase64(scenario.imageDataUrl || '');
-        setCurrentSha256(scenario.sha256 || '');
-      } else if (fallback) {
-        setCurrentPo({ ...fallback.po });
-      }
-    } catch (err) {
-      console.error('Error fetching scenario details:', err);
-      if (fallback) setCurrentPo({ ...fallback.po });
-    }
-  };
-
-  const clearResult = () => {
-    setReport(null);
-    setAnnotatedImageBase64('');
-    setErrorMessage(null);
-  };
-
-  // Handle Scenario Selection
-  const handleSelectScenario = async (scenarioId: string) => {
-    setSelectedScenarioId(scenarioId);
-    setIsCustomMode(false);
-    clearResult();
-    await loadScenario(scenarioId);
-  };
-
-  const handleModeChange = (custom: boolean) => {
-    if (custom === isCustomMode) return;
-    setIsCustomMode(custom);
-    clearResult();
-    if (custom) {
-      setCurrentImageBase64(customFile ? URL.createObjectURL(customFile) : '');
-      setCurrentSha256('');
-    } else {
-      loadScenario(selectedScenarioId);
-    }
-  };
-
-  // Handle PO Field Changes
-  const handlePoChange = (field: keyof PRDScenarioPo, value: any) => {
-    setCurrentPo((prev) => ({
-      ...prev,
-      [field]: value
-    }));
-  };
-
-  // Handle Custom File Selection
-  const handleFileSelect = (file: File) => {
-    setCustomFile(file);
-    setCurrentImageBase64(URL.createObjectURL(file));
-    setCurrentSha256('');
-    clearResult();
-  };
-
-  const handleDrag = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (e.type === 'dragenter' || e.type === 'dragover') setDragActive(true);
-    else if (e.type === 'dragleave') setDragActive(false);
-  };
-
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setDragActive(false);
-    if (e.dataTransfer.files && e.dataTransfer.files[0]) handleFileSelect(e.dataTransfer.files[0]);
-  };
-
-  const applyReport = (verificationReport: DebateInspectionReport) => {
-    setReport(verificationReport);
-    if (verificationReport.annotatedImageBase64) {
-      setAnnotatedImageBase64(verificationReport.annotatedImageBase64);
-    }
-    if (verificationReport.securityAudit?.cleanImageSha256) {
-      setCurrentSha256(verificationReport.securityAudit.cleanImageSha256);
-    }
-
-    const sourceLabel = isCustomMode
-      ? `Uploaded photo · ${customFile?.name || 'image'}`
-      : (selectedScenarioDetails?.name || 'Test scenario').replace(/^\d+\.\s*/, '');
-
-    appliedInspectionRef.current = verificationReport.inspectionId;
-    onInspectionComplete({
-      report: { ...verificationReport, scenarioId: verificationReport.scenarioId || (isCustomMode ? undefined : selectedScenarioId) },
-      po: { ...currentPo },
-      tenantId,
-      sourceLabel,
-      rawImageUrl: currentImageBase64,
-      ingested: false
-    });
-
-    requestAnimationFrame(() => resultsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
-  };
-
-  // Run Verification
-  const handleRunVerification = async () => {
-    setErrorMessage(null);
-
-    if (isCustomMode && !customFile) {
-      setErrorMessage('Add a receiving photo before running the inspection.');
+  const chooseFile = (f: File) => {
+    if (running) return;
+    const problem = checkFile(f);
+    if (problem) {
+      setErrorMessage(problem);
       return;
     }
+    clearResult();
+    setFile(f);
+    setFileUrl(URL.createObjectURL(f));
+  };
 
-    setIsLoading(true);
+  const updatePo = (field: keyof PRDScenarioPo, value: any) => {
+    setPo((prev) => ({ ...prev, [field]: value }));
+    setFieldErrors((prev) => ({ ...prev, [field]: '' }));
+  };
+
+  const addComponent = () => {
+    const parts = componentDraft.split(',').map((s) => s.trim()).filter(Boolean);
+    if (!parts.length) return;
+    updatePo('expectedComponents', [...(po.expectedComponents || []), ...parts].slice(0, 50));
+    setComponentDraft('');
+  };
+
+  const validate = (): boolean => {
+    const errs: Record<string, string> = {};
+    if (mode === 'upload' && !file) errs.file = 'Add a delivery photo.';
+    if (!po.expectedSku.trim()) errs.expectedSku = 'Enter the SKU that was ordered.';
+    if (!Number.isInteger(po.expectedQuantity) || po.expectedQuantity < 1) errs.expectedQuantity = 'Enter a whole number of units (1 or more).';
+    setFieldErrors(errs);
+    return Object.keys(errs).length === 0;
+  };
+
+  const runInspection = async () => {
+    if (running || !validate()) return;
+    clearResult();
+    const runPhoto = mode === 'upload' ? fileUrl : scenarioImage; // not a restored history image
+    const controller = new AbortController();
+    abortRef.current = controller;
+    dispatch({ type: 'start' });
+
+    let url: string;
+    let init: RequestInit;
+    if (mode === 'upload' && file) {
+      const form = new FormData();
+      form.append('photo', file);
+      if (po.poNumber.trim()) form.append('poNumber', po.poNumber.trim());
+      if (po.vendor.trim()) form.append('vendor', po.vendor.trim());
+      form.append('expectedSku', po.expectedSku.trim());
+      if (po.productName.trim()) form.append('productName', po.productName.trim());
+      form.append('expectedQuantity', String(po.expectedQuantity));
+      if (po.expectedVariant.trim()) form.append('expectedVariant', po.expectedVariant.trim());
+      form.append('expectedComponents', JSON.stringify(po.expectedComponents || []));
+      url = '/api/verify/custom';
+      init = { method: 'POST', headers: { 'X-Org-Id': tenantId }, body: form };
+    } else {
+      url = `/api/verify/scenario/${scenarioId}`;
+      init = {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Org-Id': tenantId },
+        body: JSON.stringify({ po }),
+      };
+    }
+
     try {
-      let res: Response;
-      if (isCustomMode && customFile) {
-        const formData = new FormData();
-        // Field name must match the server's multer upload.single('photo')
-        formData.append('photo', customFile);
-        formData.append('poNumber', currentPo.poNumber || 'PO-CUSTOM');
-        formData.append('vendor', currentPo.vendor || 'Custom Vendor');
-        formData.append('expectedSku', currentPo.expectedSku || 'SKU-CUSTOM');
-        formData.append('productName', currentPo.productName || 'Custom Product');
-        formData.append('expectedQuantity', String(currentPo.expectedQuantity || 1));
-        formData.append('expectedVariant', currentPo.expectedVariant || '');
-        formData.append('expectedComponents', JSON.stringify(currentPo.expectedComponents || []));
-
-        res = await fetch('/api/verify/custom', {
-          method: 'POST',
-          headers: { 'X-Org-Id': tenantId },
-          body: formData
-        });
-      } else {
-        res = await fetch(`/api/verify/scenario/${selectedScenarioId}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'X-Org-Id': tenantId },
-          body: JSON.stringify({ po: currentPo, poOverride: currentPo })
-        });
+      const result = await streamInspection(
+        url,
+        init,
+        (event) => { if (abortRef.current === controller) dispatch({ type: 'event', event }); },
+        controller.signal
+      );
+      if (abortRef.current !== controller) return; // superseded while finishing
+      dispatch({ type: 'finish' });
+      const poSnapshot = { ...po };
+      appliedRef.current = result.inspectionId;
+      setReport(result);
+      onInspectionComplete({
+        report: { ...result, scenarioId: mode === 'scenario' ? scenarioId : undefined },
+        po: poSnapshot,
+        tenantId,
+        sourceLabel: mode === 'upload' ? `Photo · ${file?.name || 'upload'}` : (scenario?.name || 'Test scenario').replace(/^\d+\.\s*/, ''),
+        rawImageUrl: runPhoto,
+        ingested: false,
+      });
+      requestAnimationFrame(() => resultsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+    } catch (err) {
+      if (abortRef.current !== controller) return; // a newer action replaced this run
+      if ((err as Error)?.name === 'AbortError') {
+        dispatch({ type: 'error', message: 'Cancelled by the operator.' });
+        return;
       }
-
-      if (res.ok) {
-        const data = await res.json();
-        applyReport(data.report || data);
-      } else {
-        setErrorMessage(await readErrorMessage(res));
-      }
-    } catch (err: any) {
-      console.error('Debate verification failed:', err);
-      setErrorMessage('Could not reach the verification server. Check that it is running on port 3001. ' + (err?.message || ''));
+      const message = err instanceof InspectionRequestError ? err.message : 'The inspection failed unexpectedly.';
+      dispatch({ type: 'error', message });
+      setErrorMessage(message);
     } finally {
-      setIsLoading(false);
+      if (abortRef.current === controller) abortRef.current = null;
     }
   };
 
-  // Record the inspection to the receiving log. A verified inspection is built from the
-  // report's observed features and verified findings; one whose verification did not
-  // complete is still recorded (Rule 3, fail open) as PENDING_REVIEW with the reason.
-  const handleIngestToTerminal = () => {
-    if (!report || ingested) return;
-    // Use the PO snapshot the inspection ran against, not later form edits
-    const po = historyEntry?.po || currentPo;
+  // Cancel keeps abortRef so the run's catch reports "Cancelled by the operator"
+  const cancelRun = () => abortRef.current?.abort();
+
+  const recordInspection = () => {
+    if (!report || historyEntry?.ingested) return;
+    const poUsed = historyEntry?.po || po;
     const ctx = {
       tenantId,
       operatorId,
       capturedAt: new Date().toISOString(),
-      // unitId left empty: dataService assigns the next deterministic UNIT-####
-      imageSha256: report.securityAudit?.cleanImageSha256 || currentSha256 || undefined
+      imageSha256: report.securityAudit?.cleanImageSha256 || undefined,
     };
-    const newRecord = isVisuallyVerified(report, po)
-      ? buildRecordFromInspection(report, po, ctx)
-      : buildPendingRecordFromInspection(report, po, ctx);
-    onSubmitRecord(newRecord);
-    onInspectionIngested(report.inspectionId, newRecord.recordId);
+    const record = isVisuallyVerified(report, poUsed)
+      ? buildRecordFromInspection(report, poUsed, ctx)
+      : buildPendingRecordFromInspection(report, poUsed, ctx);
+    onSubmitRecord(record);
+    onInspectionIngested(report.inspectionId, record.recordId);
   };
 
-  const handleNewInspection = () => {
+  const newInspection = () => {
     clearResult();
-    appliedInspectionRef.current = null;
     onOpenInspection(null);
   };
 
-  const runLabel = isLoading ? 'Running inspection…' : 'Run inspection';
+  const openClaim = (claimId: string) => {
+    const claim = report?.debatedClaims.find((c) => c.claimId === claimId);
+    if (claim) setDossierClaim(claim);
+  };
+
+  // Regions on the photo: live from the stream, final from the report
+  const boxes: StageBox[] = useMemo(() => {
+    if (report) {
+      return report.debatedClaims.map((c) => ({ claimId: c.claimId, bbox: c.bbox, label: c.claimTitle, status: c.status }));
+    }
+    return run.prosecutor.claims.map((c) => ({
+      claimId: c.claimId,
+      bbox: c.bbox,
+      label: c.claimTitle,
+      status: run.claims[c.claimId]?.status,
+    }));
+  }, [report, run.prosecutor.claims, run.claims]);
+
+  const scanning = running && (run.prosecutor.status === 'active' || run.prosecutor.status === 'idle');
+  const hud = running
+    ? <><span className="live-dot" />{run.prosecutor.status === 'done' ? 'Debating findings' : 'Scanning'}</>
+    : report
+      ? <>
+          {report.debatedClaims.length} finding(s)
+          {boxes.some((b) => !isWholeFrame(b.bbox)) ? ' · click a region for evidence' : ' · see the report below'}
+        </>
+      : photo
+        ? <>{mode === 'upload' ? file?.name : 'Scripted test image'}</>
+        : null;
 
   return (
     <div className="stack">
-
-      {/* Page header */}
       <div className="page-header" style={{ marginBottom: 0 }}>
         <div>
-          <div className="page-eyebrow">Inbound dock · Stage 01 of 05</div>
-          <h1 className="page-title">New receiving inspection</h1>
+          <div className="page-eyebrow">Inbound dock · stage 01 of 05</div>
+          <h1 className="page-title">Inspect a delivery</h1>
           <p className="page-subtitle">
-            Compare a delivery photo against its purchase order line. Each finding is argued by a Prosecutor,
-            challenged by a Defender and checked by a Blind Verifier that only sees the cropped image region.
+            Photograph what arrived, enter what was ordered, run. Three agents argue each difference and you see every step as it happens.
           </p>
         </div>
         <div className="page-actions">
-          {report && (
-            <button type="button" className="btn-secondary" onClick={handleNewInspection}>
+          {(report || run.phase !== 'idle') && !running && (
+            <button type="button" className="btn-secondary" onClick={newInspection}>
               <RotateCcw size={15} />
               New inspection
             </button>
           )}
-          <button type="button" className="btn-primary btn-lg" onClick={handleRunVerification} disabled={isLoading}>
-            {isLoading ? <RefreshCw size={16} className="spin" /> : <Play size={16} />}
-            {runLabel}
-          </button>
         </div>
       </div>
 
@@ -381,180 +342,194 @@ export const DebateWorkspaceView: React.FC<DebateWorkspaceViewProps> = ({
         <div className="notice notice-error fade-in" role="alert">
           <AlertCircle size={16} />
           <div style={{ flex: 1 }}>{errorMessage}</div>
-          <button type="button" className="btn-ghost btn-icon" onClick={() => setErrorMessage(null)} aria-label="Dismiss error">
+          <button type="button" className="btn-ghost btn-icon" onClick={() => setErrorMessage(null)} aria-label="Dismiss">
             <X size={14} />
           </button>
         </div>
       )}
 
-      {/* Step 1 — choose shipment source */}
-      <section className="panel">
-        <div className="panel-header">
-          <div className="row" style={{ gap: 10 }}>
-            <span className="step-num done">1</span>
-            <div>
-              <div className="panel-title">Select shipment</div>
-              <div className="panel-subtitle">
-                {isCustomMode ? 'Upload a photo taken at the dock.' : 'Pick one of the 10 reference scenarios, or upload your own photo.'}
-              </div>
+      <div className="run-layout">
+        {/* ---------- Left: source + order ---------- */}
+        <section className="panel" aria-label="Delivery and purchase order">
+          <div className="panel-header">
+            <div className="segmented" role="tablist" aria-label="Photo source">
+              <button type="button" role="tab" aria-selected={mode === 'upload'} className={mode === 'upload' ? 'active' : ''}
+                onClick={() => { if (!running) { clearResult(); setMode('upload'); } }}>
+                <UploadCloud size={14} /> Photo
+              </button>
+              <button type="button" role="tab" aria-selected={mode === 'scenario'} className={mode === 'scenario' ? 'active' : ''}
+                onClick={() => { if (!running) { clearResult(); setMode('scenario'); } }}>
+                <Layers size={14} /> Test scenarios
+              </button>
             </div>
           </div>
-          <div className="segmented" role="tablist" aria-label="Inspection source">
-            <button type="button" role="tab" aria-selected={!isCustomMode} className={!isCustomMode ? 'active' : ''} onClick={() => handleModeChange(false)}>
-              <Layers size={14} />
-              Test scenarios
-            </button>
-            <button type="button" role="tab" aria-selected={isCustomMode} className={isCustomMode ? 'active' : ''} onClick={() => handleModeChange(true)}>
-              <UploadCloud size={14} />
-              Upload photo
-            </button>
-          </div>
-        </div>
 
-        <div className="panel-body">
-          {!isCustomMode ? (
-            scenariosError ? (
-              <div className="notice notice-error">
-                <AlertCircle size={16} />
-                <div>{scenariosError}</div>
-              </div>
-            ) : (
-              <ScenarioSelector
-                scenarios={scenarios}
-                selectedScenarioId={selectedScenarioId}
-                onSelectScenario={handleSelectScenario}
-              />
-            )
-          ) : (
-            <div className="stack" style={{ gap: 12 }}>
-              <div
-                className={`dropzone ${dragActive ? 'active' : ''} ${customFile ? 'has-file' : ''}`}
-                onDragEnter={handleDrag}
-                onDragLeave={handleDrag}
-                onDragOver={handleDrag}
-                onDrop={handleDrop}
-                onClick={() => document.getElementById('custom-file-input')?.click()}
-                role="button"
-                tabIndex={0}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === ' ') {
+          <div className="panel-body">
+            {mode === 'upload' ? (
+              <div className="form-group">
+                <span className="form-label">Delivery photo<span className="required">*</span></span>
+                <div
+                  className={`dropzone ${dragActive ? 'active' : ''} ${file ? 'has-file' : ''}`}
+                  onDragEnter={(e) => { e.preventDefault(); setDragActive(true); }}
+                  onDragOver={(e) => { e.preventDefault(); setDragActive(true); }}
+                  onDragLeave={(e) => { e.preventDefault(); setDragActive(false); }}
+                  onDrop={(e) => {
                     e.preventDefault();
-                    document.getElementById('custom-file-input')?.click();
-                  }
-                }}
-              >
-                <input
-                  type="file"
-                  id="custom-file-input"
-                  style={{ display: 'none' }}
-                  accept="image/png,image/jpeg,image/webp"
-                  onChange={(e) => {
-                    if (e.target.files && e.target.files[0]) handleFileSelect(e.target.files[0]);
+                    setDragActive(false);
+                    if (e.dataTransfer.files?.[0]) chooseFile(e.dataTransfer.files[0]);
                   }}
-                />
-                <UploadCloud size={26} color={customFile ? 'var(--ok-text)' : 'var(--text-dim)'} style={{ margin: '0 auto 6px', display: 'block' }} />
-                {customFile ? (
-                  <>
-                    <div style={{ fontWeight: 500, color: 'var(--ok-text)' }}>{customFile.name}</div>
-                    <div className="xsmall muted">{(customFile.size / 1024).toFixed(1)} KB · click to replace</div>
-                  </>
-                ) : (
-                  <>
-                    <div style={{ fontWeight: 500 }}>Drop a receiving photo here, or click to browse</div>
-                    <div className="xsmall dim">JPEG, PNG or WEBP · up to 15 MB · EXIF/GPS metadata is stripped before hashing</div>
-                  </>
-                )}
-              </div>
-              <div className="notice notice-info">
-                <Info size={16} />
-                <div>
-                  {visionModel ? (
+                  onClick={() => fileInputRef.current?.click()}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fileInputRef.current?.click(); } }}
+                >
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    hidden
+                    accept="image/jpeg,image/png,image/webp,image/tiff"
+                    onChange={(e) => { if (e.target.files?.[0]) chooseFile(e.target.files[0]); e.target.value = ''; }}
+                  />
+                  {file ? (
                     <>
-                      Uploaded photos are sanitised (EXIF removed), SHA-256 hashed and inspected by the vision model
-                      <strong> {visionModel}</strong> (Prosecutor, Defender and an isolated Blind Verifier). If the model fails,
-                      times out or cannot determine something from the photo, the result is <strong>UNCERTAIN</strong> and
-                      can only be recorded as pending review.
+                      <div style={{ fontWeight: 700 }} className="truncate">{file.name}</div>
+                      <div className="xsmall muted">{(file.size / 1048576).toFixed(2)} MB · click to replace</div>
                     </>
                   ) : (
                     <>
-                      No vision model is configured on the server. Uploaded photos are sanitised (EXIF removed) and SHA-256
-                      hashed, but they are not compared with the purchase order, so an upload returns
-                      <strong> UNCERTAIN</strong> (visual verification unavailable), is never reported as a match, and can
-                      only be recorded as pending review.
+                      <UploadCloud size={24} style={{ margin: '0 auto 6px', display: 'block' }} />
+                      <div style={{ fontWeight: 700 }}>Drop a photo or click to take / choose one</div>
+                      <div className="xsmall dim">JPEG · PNG · WEBP · TIFF, up to 15 MB</div>
                     </>
                   )}
                 </div>
+                {fieldErrors.file && <div className="form-error-msg">{fieldErrors.file}</div>}
+              </div>
+            ) : scenariosError ? (
+              <div className="notice notice-error"><AlertCircle size={16} /><div>{scenariosError}</div></div>
+            ) : (
+              <div className="form-group">
+                <div className="notice notice-info" style={{ marginBottom: 10 }}>
+                  <Info size={16} />
+                  <div>Test scenarios replay scripted observations; no model is called. Use them to check the decision rules.</div>
+                </div>
+                <ScenarioSelector scenarios={scenarios} selectedScenarioId={scenarioId} onSelectScenario={(id) => { if (running) return; clearResult(); setScenarioId(id); }} />
+              </div>
+            )}
+
+            <div className="row-between" style={{ margin: '6px 0 12px', paddingTop: 12, borderTop: '1px solid var(--border-subtle)' }}>
+              <span className="panel-title">Ordered</span>
+              <span className="xsmall dim">from the purchase order</span>
+            </div>
+
+            <div className="grid-2col">
+              <div className="form-group">
+                <label className="form-label" htmlFor="po-sku">SKU<span className="required">*</span></label>
+                <input id="po-sku" className={`form-input mono ${fieldErrors.expectedSku ? 'error' : ''}`} value={po.expectedSku}
+                  placeholder="e.g. SKU-4410" onChange={(e) => updatePo('expectedSku', e.target.value)} disabled={running} />
+                {fieldErrors.expectedSku && <div className="form-error-msg">{fieldErrors.expectedSku}</div>}
+              </div>
+              <div className="form-group">
+                <label className="form-label" htmlFor="po-qty">Units<span className="required">*</span></label>
+                <input id="po-qty" className={`form-input mono ${fieldErrors.expectedQuantity ? 'error' : ''}`} type="number" min={1} step={1}
+                  value={Number.isFinite(po.expectedQuantity) ? po.expectedQuantity : ''}
+                  onChange={(e) => updatePo('expectedQuantity', e.target.value === '' ? NaN : Number(e.target.value))} disabled={running} />
+                {fieldErrors.expectedQuantity && <div className="form-error-msg">{fieldErrors.expectedQuantity}</div>}
               </div>
             </div>
-          )}
+            <div className="form-group">
+              <label className="form-label" htmlFor="po-variant">Variant / spec</label>
+              <input id="po-variant" className="form-input" value={po.expectedVariant} placeholder="colour, capacity, model"
+                onChange={(e) => updatePo('expectedVariant', e.target.value)} disabled={running} />
+            </div>
+            <div className="form-group">
+              <label className="form-label" htmlFor="po-product">Product</label>
+              <input id="po-product" className="form-input" value={po.productName} onChange={(e) => updatePo('productName', e.target.value)} disabled={running} />
+            </div>
+            <div className="grid-2col">
+              <div className="form-group">
+                <label className="form-label" htmlFor="po-number">PO number</label>
+                <input id="po-number" className="form-input mono" value={po.poNumber} onChange={(e) => updatePo('poNumber', e.target.value)} disabled={running} />
+              </div>
+              <div className="form-group">
+                <label className="form-label" htmlFor="po-vendor">Supplier</label>
+                <input id="po-vendor" className="form-input" value={po.vendor} onChange={(e) => updatePo('vendor', e.target.value)} disabled={running} />
+              </div>
+            </div>
+            <div className="form-group" style={{ marginBottom: 0 }}>
+              <label className="form-label" htmlFor="po-comp">Kit components</label>
+              <div className="row">
+                <input id="po-comp" className="form-input" value={componentDraft} placeholder="add, comma separated"
+                  onChange={(e) => setComponentDraft(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addComponent(); } }} disabled={running} />
+                <button type="button" className="btn-secondary btn-icon" onClick={addComponent} aria-label="Add component" disabled={running}>
+                  <Plus size={15} />
+                </button>
+              </div>
+              {(po.expectedComponents || []).length > 0 && (
+                <div className="row" style={{ flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
+                  {po.expectedComponents.map((c, i) => (
+                    <span key={`${c}-${i}`} className="chip">
+                      {c}
+                      {!running && (
+                        <button type="button" className="chip-remove" aria-label={`Remove ${c}`}
+                          onClick={() => updatePo('expectedComponents', po.expectedComponents.filter((_, j) => j !== i))}>
+                          <X size={12} />
+                        </button>
+                      )}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="panel-footer">
+            {running ? (
+              <button type="button" className="btn-secondary btn-block btn-lg" onClick={cancelRun}>
+                <Square size={14} /> Cancel run
+              </button>
+            ) : (
+              <button type="button" className="btn-primary btn-block btn-lg" onClick={runInspection}>
+                <Play size={15} /> Run inspection
+              </button>
+            )}
+          </div>
+        </section>
+
+        {/* ---------- Right: photo + live run ---------- */}
+        <div className="run-main">
+          <PhotoStage
+            src={photo || undefined}
+            boxes={boxes}
+            scanning={scanning}
+            hud={hud}
+            onNaturalSize={setNaturalSize}
+            onBoxClick={openClaim}
+            emptyText={mode === 'upload' ? 'Add a delivery photo to start' : 'Loading test image…'}
+          />
+          <LiveRun run={run} photoUrl={photo || undefined} naturalSize={naturalSize} />
         </div>
-      </section>
-
-      {/* Step 2 — expected vs evidence */}
-      <div className="inspect-layout">
-        <POEditorPanel
-          po={currentPo}
-          onPoChange={handlePoChange}
-          onRunVerification={handleRunVerification}
-          isLoading={isLoading}
-          scenarioDetails={isCustomMode ? undefined : selectedScenarioDetails}
-        />
-
-        <VisualEvidenceViewer
-          rawImageDataUrl={currentImageBase64}
-          annotatedImageDataUrl={annotatedImageBase64}
-          sha256Hash={currentSha256}
-          debatedClaims={report?.debatedClaims || []}
-          onClaimClick={(claim) => setSelectedDossierClaim(claim)}
-        />
       </div>
 
-      {/* Step 3 — results */}
       <div ref={resultsRef} style={{ scrollMarginTop: 120 }} className="stack">
-        {report ? (
+        {report && (
           <>
             <StructuredReportView
               report={report}
-              po={historyEntry?.po || currentPo}
+              po={historyEntry?.po || po}
               tenantId={tenantId}
-              ingested={ingested}
+              ingested={!!historyEntry?.ingested}
               recordId={historyEntry?.recordId}
-              onIngest={handleIngestToTerminal}
+              onIngest={recordInspection}
               onViewDashboard={onNavigateToDashboard}
-              onClaimClick={(claim) => setSelectedDossierClaim(claim)}
+              onClaimClick={setDossierClaim}
             />
-
-            <DebatePipelineVisualizer
-              debatedClaims={report.debatedClaims}
-              onClaimClick={(claim) => setSelectedDossierClaim(claim)}
-            />
-
+            <DebatePipelineVisualizer debatedClaims={report.debatedClaims} onClaimClick={setDossierClaim} />
             {report.evidenceGraph && (
-              <EvidenceGraph
-                evidenceGraph={report.evidenceGraph}
-                debatedClaims={report.debatedClaims}
-                onClaimClick={(claim) => setSelectedDossierClaim(claim)}
-              />
+              <EvidenceGraph evidenceGraph={report.evidenceGraph} debatedClaims={report.debatedClaims} onClaimClick={setDossierClaim} />
             )}
           </>
-        ) : (
-          <section className="panel">
-            <div className="panel-header">
-              <div className="row" style={{ gap: 10 }}>
-                <span className="step-num">3</span>
-                <div className="panel-title">Inspection results</div>
-              </div>
-            </div>
-            {isLoading ? (
-              <EmptyState icon={RefreshCw} title="Running inspection…">
-                Generating claims, running the three verification roles and building the evidence graph.
-              </EmptyState>
-            ) : (
-              <EmptyState icon={ScanSearch} title="No result yet">
-                Review the purchase order and photo above, then select <strong>Run inspection</strong>.
-              </EmptyState>
-            )}
-          </section>
         )}
       </div>
 
@@ -562,21 +537,18 @@ export const DebateWorkspaceView: React.FC<DebateWorkspaceViewProps> = ({
         entries={history}
         activeId={report?.inspectionId}
         onOpen={(id) => {
-          const entry = history.find((h) => h.report.inspectionId === id);
-          if (entry) restoreEntry(entry);
+          restoreEntry(id); // works even when the parent's selected id has not changed
           onOpenInspection(id);
         }}
       />
 
-      {/* Claim dossier */}
-      {selectedDossierClaim && (
+      {dossierClaim && (
         <DossierModal
-          claim={selectedDossierClaim}
-          onClose={() => setSelectedDossierClaim(null)}
-          masterImageHash={currentSha256}
+          claim={dossierClaim}
+          onClose={() => setDossierClaim(null)}
+          masterImageHash={report?.securityAudit?.cleanImageSha256 || ''}
         />
       )}
-
     </div>
   );
 };

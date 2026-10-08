@@ -9,7 +9,10 @@ const {
   computeSha256,
   sanitizeImageMetadata,
   sanitizeExtractedText,
-  withTimeout
+  withTimeout,
+  badRequest,
+  MAX_FILE_SIZE_BYTES,
+  ALLOWED_MIME_TYPES
 } = require('./security');
 const { SCENARIOS, getScenarioImageBuffer } = require('./scenarios');
 const { runDebatePipeline } = require('./debateEngine');
@@ -49,6 +52,11 @@ function requireTenant(req, res, next) {
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+// Express 5 leaves req.body undefined for body-less requests; routes expect an object
+app.use((req, res, next) => {
+  if (req.body === undefined) req.body = {};
+  next();
+});
 
 // Serve static frontend from dist if built
 const rootDistPath = path.join(__dirname, '..', 'dist');
@@ -58,11 +66,95 @@ if (fs.existsSync(clientDistPath)) {
 }
 
 // In-memory report cache for export / download: inspectionId -> { orgId, report }
+// ponytail: FIFO cap (reports carry MB-sized base64 images); persistent store if exports must outlive it
+const REPORT_CACHE_MAX = 200;
 const reportCache = new Map();
 
 function cacheReport(orgId, report) {
   report.orgId = orgId;
   reportCache.set(report.inspectionId, { orgId, report });
+  if (reportCache.size > REPORT_CACHE_MAX) reportCache.delete(reportCache.keys().next().value);
+}
+
+/** expectedComponents arrives as a JSON string (multipart) or an array (JSON body). → sanitised string[] */
+function parseComponents(value) {
+  if (value === undefined || value === null || value === '') return [];
+  let list = value;
+  if (typeof value === 'string') {
+    try {
+      list = JSON.parse(value);
+    } catch {
+      throw badRequest('expectedComponents must be a JSON array of strings.');
+    }
+  }
+  if (!Array.isArray(list) || list.length > 50 || !list.every((c) => typeof c === 'string')) {
+    throw badRequest('expectedComponents must be an array of at most 50 strings.');
+  }
+  return list.map((c) => sanitizeExtractedText(c).slice(0, 200)).filter(Boolean);
+}
+
+/** Positive whole-unit quantity; `fallback` when not supplied. */
+function parseQuantity(value, fallback) {
+  if (value === undefined || value === null || value === '') return fallback;
+  const n = Number(value);
+  if (!Number.isSafeInteger(n) || n < 1) throw badRequest('expectedQuantity must be a positive whole number.');
+  return n;
+}
+
+/**
+ * Response helper for the verify routes. With `?stream=1` the response is NDJSON progress
+ * events (each with `t` = ms since the request started) ending in exactly one
+ * {"type":"report"} or {"type":"error"} line. Events emitted before `open()` are buffered,
+ * so input validation can still answer with a plain JSON 400. Without `?stream=1` events are
+ * dropped and the report is sent as JSON, as before.
+ * `signal` aborts when the client disconnects before the response finished.
+ */
+function verifyResponse(req, res) {
+  const t0 = Date.now();
+  const streaming = req.query.stream === '1';
+  const controller = new AbortController();
+  res.on('close', () => {
+    if (!res.writableFinished) controller.abort();
+  });
+  let opened = false;
+  const pending = [];
+  const write = (line) => {
+    if (!res.destroyed && !res.writableEnded) res.write(`${JSON.stringify(line)}\n`);
+  };
+  const emit = (evt) => {
+    if (!streaming) return;
+    const line = { ...evt, t: Date.now() - t0 };
+    if (opened) write(line);
+    else pending.push(line);
+  };
+  return {
+    signal: controller.signal,
+    abort: () => controller.abort(),
+    emit,
+    open() {
+      if (!streaming || opened) return;
+      res.status(200).set({
+        'Content-Type': 'application/x-ndjson; charset=utf-8',
+        'Cache-Control': 'no-cache',
+        'X-Accel-Buffering': 'no'
+      });
+      res.flushHeaders();
+      opened = true;
+      pending.splice(0).forEach(write);
+    },
+    sendReport(report) {
+      if (!opened) return res.json({ success: true, report });
+      emit({ type: 'report', report });
+      res.end();
+    },
+    /** Returns false when the error must be answered as a normal (non-streamed) response. */
+    sendError(message) {
+      if (!opened) return false;
+      emit({ type: 'error', error: message });
+      res.end();
+      return true;
+    }
+  };
 }
 
 // Configure Multer memory storage for secure processing
@@ -148,18 +240,13 @@ app.get('/api/scenarios/:id', async (req, res) => {
  * Run DEBATE Verification Workflow on a PRD Scenario
  */
 app.post('/api/verify/scenario/:id', requireTenant, async (req, res) => {
+  const out = verifyResponse(req, res);
   try {
     const { id } = req.params;
     const scenario = SCENARIOS.find(s => s.id === id);
     if (!scenario) {
       return res.status(404).json({ success: false, error: `Scenario ${id} not found.` });
     }
-
-    // Generate scenario image & metadata
-    const { pngBuffer, sha256, dataUrl } = await getScenarioImageBuffer(id);
-
-    // Sanitize image metadata (EXIF/GPS stripping)
-    const { cleanBuffer, rawHash, cleanHash } = await sanitizeImageMetadata(pngBuffer);
 
     // Merge custom PO override if user edited PO values in UI
     const userPoOverride = req.body.po || {};
@@ -168,16 +255,25 @@ app.post('/api/verify/scenario/:id', requireTenant, async (req, res) => {
       vendor: sanitizeExtractedText(userPoOverride.vendor || scenario.po.vendor),
       expectedSku: sanitizeExtractedText(userPoOverride.expectedSku || scenario.po.expectedSku),
       productName: sanitizeExtractedText(userPoOverride.productName || scenario.po.productName),
-      expectedQuantity: Number(userPoOverride.expectedQuantity) || scenario.po.expectedQuantity,
+      expectedQuantity: parseQuantity(userPoOverride.expectedQuantity, scenario.po.expectedQuantity),
       expectedVariant: sanitizeExtractedText(userPoOverride.expectedVariant || scenario.po.expectedVariant),
-      expectedComponents: userPoOverride.expectedComponents || scenario.po.expectedComponents,
+      expectedComponents: userPoOverride.expectedComponents
+        ? parseComponents(userPoOverride.expectedComponents)
+        : scenario.po.expectedComponents,
       carrierTracking: sanitizeExtractedText(userPoOverride.carrierTracking || scenario.po.carrierTracking),
       notes: sanitizeExtractedText(userPoOverride.notes || scenario.po.notes)
     };
 
+    // Generate the scenario image, then sanitize it (EXIF/GPS stripping); inputs are valid from here on
+    out.emit({ type: 'stage', stage: 'PREPROCESS', status: 'started' });
+    const { pngBuffer } = await getScenarioImageBuffer(id);
+    const { cleanBuffer, rawHash, cleanHash, width, height } = await sanitizeImageMetadata(pngBuffer);
+    out.open();
+    out.emit({ type: 'stage', stage: 'PREPROCESS', status: 'done', imageSha256: cleanHash, width, height });
+
     // Run adversarial debate pipeline with timeout guard
     const report = await withTimeout(
-      runDebatePipeline(po, cleanBuffer, cleanHash, rawHash, scenario.visualMetadata),
+      runDebatePipeline(po, cleanBuffer, cleanHash, rawHash, scenario.visualMetadata, { onEvent: out.emit }),
       25000,
       'Adversarial DEBATE Pipeline'
     );
@@ -186,11 +282,10 @@ app.post('/api/verify/scenario/:id', requireTenant, async (req, res) => {
     report.scenarioId = id;
     cacheReport(req.tenantId, report);
 
-    res.json({
-      success: true,
-      report
-    });
+    out.sendReport(report);
   } catch (err) {
+    if (out.sendError(err.message)) return;
+    if (err.statusCode === 400) return res.status(400).json({ success: false, error: err.message });
     console.error('Error running scenario verification:', err);
     res.status(500).json({ success: false, error: err.message });
   }
@@ -200,37 +295,54 @@ app.post('/api/verify/scenario/:id', requireTenant, async (req, res) => {
  * Run DEBATE Verification Workflow on Custom Uploaded Image & PO
  */
 app.post('/api/verify/custom', requireTenant, upload.single('photo'), async (req, res) => {
+  const out = verifyResponse(req, res);
   try {
     let imageBuffer;
     let rawMime = 'image/png';
 
     if (req.file) {
-      validateUpload(req.file);
+      try {
+        validateUpload(req.file);
+      } catch (e) {
+        throw badRequest(e.message);
+      }
       imageBuffer = req.file.buffer;
       rawMime = req.file.mimetype;
     } else if (req.body.imageDataUrl) {
-      // Base64 upload fallback
-      const base64Data = req.body.imageDataUrl.replace(/^data:image\/\w+;base64,/, '');
-      imageBuffer = Buffer.from(base64Data, 'base64');
+      // Base64 upload fallback: same MIME whitelist and size limit as multipart uploads
+      // (the decoded content's real format is then checked by sanitizeImageMetadata)
+      const match = typeof req.body.imageDataUrl === 'string' && req.body.imageDataUrl.match(/^data:([\w/+.-]+);base64,(.*)$/s);
+      if (!match || !ALLOWED_MIME_TYPES.includes(match[1])) {
+        throw badRequest('imageDataUrl must be a base64 data URL of a JPEG, PNG, WEBP or TIFF image.');
+      }
+      imageBuffer = Buffer.from(match[2], 'base64');
+      rawMime = match[1];
+      if (imageBuffer.length > MAX_FILE_SIZE_BYTES) throw badRequest('Image exceeds max limit of 15MB.');
     } else {
       return res.status(400).json({ success: false, error: 'No receiving photo uploaded.' });
     }
 
-    // Security: Strip EXIF, GPS and calculate SHA-256 hashes
-    const { cleanBuffer, rawHash, cleanHash } = await sanitizeImageMetadata(imageBuffer);
-
-    // Sanitize user-provided PO inputs to prevent prompt injection
+    // Sanitize user-provided PO inputs to prevent prompt injection. Nothing is invented: an empty
+    // field stays empty ("no requirement"), so the agent never compares the photo with made-up values.
+    const expectedSku = sanitizeExtractedText(req.body.expectedSku || '');
+    if (!expectedSku) throw badRequest('expectedSku is required: the SKU on the purchase order.');
     const po = {
-      poNumber: sanitizeExtractedText(req.body.poNumber || `PO-${Date.now().toString().slice(-6)}`),
-      vendor: sanitizeExtractedText(req.body.vendor || 'Vendor Unknown'),
-      expectedSku: sanitizeExtractedText(req.body.expectedSku || 'SKU-UNKNOWN'),
-      productName: sanitizeExtractedText(req.body.productName || 'General Receiving Item'),
-      expectedQuantity: Number(req.body.expectedQuantity) || 1,
-      expectedVariant: sanitizeExtractedText(req.body.expectedVariant || 'Standard'),
-      expectedComponents: req.body.expectedComponents ? JSON.parse(req.body.expectedComponents) : [],
+      poNumber: sanitizeExtractedText(req.body.poNumber || ''),
+      vendor: sanitizeExtractedText(req.body.vendor || ''),
+      expectedSku,
+      productName: sanitizeExtractedText(req.body.productName || ''),
+      expectedQuantity: parseQuantity(req.body.expectedQuantity, 1),
+      expectedVariant: sanitizeExtractedText(req.body.expectedVariant || ''),
+      expectedComponents: parseComponents(req.body.expectedComponents),
       carrierTracking: sanitizeExtractedText(req.body.carrierTracking || ''),
       notes: sanitizeExtractedText(req.body.notes || '')
     };
+
+    // Security: decode check, strip EXIF/GPS, cap to a <=2048 px JPEG working copy, SHA-256 hashes
+    out.emit({ type: 'stage', stage: 'PREPROCESS', status: 'started' });
+    const { cleanBuffer, rawHash, cleanHash, width, height } = await sanitizeImageMetadata(imageBuffer, 'jpeg');
+    out.open(); // all input validation (400s) is done; streaming may start
+    out.emit({ type: 'stage', stage: 'PREPROCESS', status: 'done', imageSha256: cleanHash, width, height });
 
     // Observations for an uploaded photo come only from the vision model. Client-supplied
     // "visualMeta" is deliberately ignored: accepting it would let a caller fabricate
@@ -242,31 +354,38 @@ app.post('/api/verify/custom', requireTenant, upload.single('photo'), async (req
       : 25000;
 
     let report;
+    let live = true; // events from an abandoned (timed-out) pipeline are not forwarded
     try {
       report = await withTimeout(
-        runDebatePipeline(po, cleanBuffer, cleanHash, rawHash, null, { visionProvider }),
+        runDebatePipeline(po, cleanBuffer, cleanHash, rawHash, null, {
+          visionProvider,
+          signal: out.signal,
+          onEvent: (evt) => live && out.emit(evt)
+        }),
         pipelineTimeoutMs,
         'Vision inspection pipeline'
       );
     } catch (pipelineErr) {
+      live = false;
+      out.abort(); // cancel model calls still running in the abandoned pipeline
       // Rule 3 — fail open: the capture is still processed and returned as an UNCERTAIN,
       // INCOMPLETE inspection with the failure reason; it is never treated as a pass.
-      console.error('Vision inspection failed; returning fail-open result:', pipelineErr.message);
+      console.error('Vision inspection failed; returning fail-open result:', pipelineErr);
       report = await runDebatePipeline(po, cleanBuffer, cleanHash, rawHash, null, {
         unavailableReason: pipelineErr.message,
         unavailableKind: /timed out/i.test(pipelineErr.message) ? 'TIMEOUT' : 'PIPELINE_ERROR',
-        failedMode: visionProvider ? 'VISION_MODEL' : 'NONE'
+        failedMode: visionProvider ? 'VISION_MODEL' : 'NONE',
+        onEvent: out.emit
       });
     }
 
     report.isCustomUpload = true;
     cacheReport(req.tenantId, report);
 
-    res.json({
-      success: true,
-      report
-    });
+    out.sendReport(report);
   } catch (err) {
+    if (out.sendError(err.message)) return;
+    if (err.statusCode === 400) return res.status(400).json({ success: false, error: err.message });
     console.error('Error running custom verification:', err);
     res.status(500).json({ success: false, error: err.message });
   }
@@ -408,6 +527,13 @@ if (fs.existsSync(clientDistPath)) {
     res.sendFile(path.join(clientDistPath, 'index.html'));
   });
 }
+
+// JSON errors for the API (e.g. multer file-size limit → 400 instead of an HTML 500)
+app.use((err, req, res, next) => {
+  if (!req.path.startsWith('/api')) return next(err);
+  const status = err instanceof multer.MulterError || err.type === 'entity.too.large' ? 400 : err.statusCode || 500;
+  res.status(status).json({ success: false, error: err.message });
+});
 
 // Start Express Server
 if (require.main === module) {

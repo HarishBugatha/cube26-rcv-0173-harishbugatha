@@ -129,7 +129,7 @@ describe('PRD-3 DEBATE Architecture & 10 Scenario Verification Suite', () => {
       expect(claim.blindVerifier.observations).toBeInstanceOf(Array);
       expect(claim.blindVerifier.observationalConfidence).toBeGreaterThan(0.8);
       // Evidence crop ROI must exist and have sub-pixel coordinates
-      expect(claim.evidence.cropBase64).toContain('data:image/png;base64,');
+      expect(claim.evidence.cropBase64).toContain('data:image/jpeg;base64,');
       expect(claim.evidence.pixelCoords).toBeDefined();
       expect(claim.evidence.pixelCoords.width).toBeGreaterThan(0);
       expect(claim.evidence.pixelCoords.height).toBeGreaterThan(0);

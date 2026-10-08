@@ -52,10 +52,10 @@ export const DiscrepanciesView: React.FC<DiscrepanciesViewProps> = ({
   return (
     <div>
       <div style={{ marginBottom: '1.25rem' }}>
-        <h2 style={{ fontSize: '1.25rem', fontWeight: 700, color: '#f8fafc' }}>
+        <h2 style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--text-main)' }}>
           Dock Discrepancy & Quarantine Queue
         </h2>
-        <p style={{ fontSize: '0.85rem', color: '#94a3b8' }}>
+        <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
           Quarantine holds, shortage claims, damage records, and photographic proof feeding Step 05 Recovery Manager.
         </p>
       </div>
@@ -71,41 +71,41 @@ export const DiscrepanciesView: React.FC<DiscrepanciesViewProps> = ({
       >
         <div
           className="card-panel"
-          style={{ padding: '1rem', borderLeft: '4px solid #ef4444' }}
+          style={{ padding: '1rem', borderLeft: '4px solid var(--bad)' }}
         >
-          <div style={{ fontSize: '0.75rem', color: '#f87171', fontWeight: 600 }}>
+          <div style={{ fontSize: '0.75rem', color: 'var(--bad-text)', fontWeight: 600 }}>
             FLAGGED SHIPMENTS
           </div>
-          <div className="font-mono" style={{ fontSize: '1.75rem', fontWeight: 700, color: '#f8fafc' }}>
+          <div className="font-mono" style={{ fontSize: '1.75rem', fontWeight: 700, color: 'var(--text-main)' }}>
             {discrepancyRecords.length}
           </div>
-          <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Require resolution or claim</div>
+          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Require resolution or claim</div>
         </div>
 
         <div
           className="card-panel"
-          style={{ padding: '1rem', borderLeft: '4px solid #f59e0b' }}
+          style={{ padding: '1rem', borderLeft: '4px solid var(--warn)' }}
         >
-          <div style={{ fontSize: '0.75rem', color: '#fbbf24', fontWeight: 600 }}>
+          <div style={{ fontSize: '0.75rem', color: 'var(--warn-text)', fontWeight: 600 }}>
             CUMULATIVE SHORTAGE
           </div>
-          <div className="font-mono" style={{ fontSize: '1.75rem', fontWeight: 700, color: '#fbbf24' }}>
+          <div className="font-mono" style={{ fontSize: '1.75rem', fontWeight: 700, color: 'var(--warn-text)' }}>
             -{totalShortageUnits} <span style={{ fontSize: '0.9rem' }}>units</span>
           </div>
-          <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Eligible for supplier chargeback</div>
+          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Eligible for supplier chargeback</div>
         </div>
 
         <div
           className="card-panel"
-          style={{ padding: '1rem', borderLeft: '4px solid #818cf8' }}
+          style={{ padding: '1rem', borderLeft: '4px solid var(--over)' }}
         >
-          <div style={{ fontSize: '0.75rem', color: '#a5b4fc', fontWeight: 600 }}>
+          <div style={{ fontSize: '0.75rem', color: 'var(--over-text)', fontWeight: 600 }}>
             CUMULATIVE SURPLUS
           </div>
-          <div className="font-mono" style={{ fontSize: '1.75rem', fontWeight: 700, color: '#a5b4fc' }}>
+          <div className="font-mono" style={{ fontSize: '1.75rem', fontWeight: 700, color: 'var(--over-text)' }}>
             +{totalSurplusUnits} <span style={{ fontSize: '0.9rem' }}>units</span>
           </div>
-          <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Held in dock surplus staging</div>
+          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Held in dock surplus staging</div>
         </div>
       </div>
 
@@ -126,7 +126,7 @@ export const DiscrepanciesView: React.FC<DiscrepanciesViewProps> = ({
             style={{
               padding: '0.4rem 0.85rem',
               fontSize: '0.8rem',
-              backgroundColor: typeFilter === tab.id ? '#2563eb' : undefined,
+              backgroundColor: typeFilter === tab.id ? 'var(--accent-primary)' : undefined,
               color: typeFilter === tab.id ? 'white' : undefined,
             }}
             onClick={() => setTypeFilter(tab.id)}
@@ -141,7 +141,7 @@ export const DiscrepanciesView: React.FC<DiscrepanciesViewProps> = ({
         {filteredDiscrepancies.length === 0 ? (
           <div
             className="card-panel"
-            style={{ padding: '3rem', textAlign: 'center', color: '#64748b' }}
+            style={{ padding: '3rem', textAlign: 'center', color: 'var(--text-dim)' }}
           >
             No discrepancies in this category. All shipments compliant.
           </div>
@@ -154,21 +154,21 @@ export const DiscrepanciesView: React.FC<DiscrepanciesViewProps> = ({
                 style={{
                   borderLeft: `4px solid ${
                     r.status === 'SHORT_RECEIVED'
-                      ? '#f59e0b'
+                      ? 'var(--warn)'
                       : r.status === 'OVER_RECEIVED'
-                      ? '#818cf8'
+                      ? 'var(--over)'
                       : r.status === 'UNCERTAIN'
-                      ? '#6366f1'
-                      : '#ef4444'
+                      ? 'var(--over)'
+                      : 'var(--bad)'
                   }`,
                 }}
               >
                 <div className="card-panel-header">
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
-                    <span className="font-mono" style={{ fontWeight: 700, color: '#38bdf8' }}>
+                    <span className="font-mono" style={{ fontWeight: 700, color: 'var(--info-text)' }}>
                       {r.recordId}
                     </span>
-                    <span className="font-mono" style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
+                    <span className="font-mono" style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
                       Unit: {r.unitId}
                     </span>
                     <DiscrepancyBadge status={r.status} size="sm" />
@@ -209,39 +209,39 @@ export const DiscrepanciesView: React.FC<DiscrepanciesViewProps> = ({
                     }}
                   >
                     <div>
-                      <div style={{ fontSize: '0.75rem', color: '#64748b' }}>PURCHASE ORDER & LINE:</div>
-                      <div className="font-mono" style={{ fontWeight: 600, color: '#f8fafc' }}>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-dim)' }}>PURCHASE ORDER & LINE:</div>
+                      <div className="font-mono" style={{ fontWeight: 600, color: 'var(--text-main)' }}>
                         {r.poNumber} [Line #{r.poLine}]
                       </div>
-                      <div style={{ fontSize: '0.8rem', color: '#94a3b8' }}>{r.supplier}</div>
+                      <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{r.supplier}</div>
                     </div>
 
                     <div>
-                      <div style={{ fontSize: '0.75rem', color: '#64748b' }}>PRODUCT & EXPECTED SKU:</div>
-                      <div style={{ fontWeight: 500, color: '#f8fafc' }}>{r.productTitle}</div>
-                      <div className="font-mono" style={{ fontSize: '0.8rem', color: '#94a3b8' }}>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-dim)' }}>PRODUCT & EXPECTED SKU:</div>
+                      <div style={{ fontWeight: 500, color: 'var(--text-main)' }}>{r.productTitle}</div>
+                      <div className="font-mono" style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
                         Ordered: {r.sku}
                       </div>
                     </div>
 
                     <div>
-                      <div style={{ fontSize: '0.75rem', color: '#64748b' }}>RECEIVED SKU SCAN:</div>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-dim)' }}>RECEIVED SKU SCAN:</div>
                       <div
                         className="font-mono"
                         style={{
                           fontWeight: 700,
-                          color: r.receivedSku === r.sku ? '#34d399' : '#f87171',
+                          color: r.receivedSku === r.sku ? 'var(--ok-text)' : 'var(--bad-text)',
                         }}
                       >
                         {r.receivedSku}
                       </div>
-                      <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
                         Identity Match: {r.identityMatch.toUpperCase()}
                       </div>
                     </div>
 
                     <div>
-                      <div style={{ fontSize: '0.75rem', color: '#64748b' }}>QUANTITY RECONCILIATION:</div>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-dim)' }}>QUANTITY RECONCILIATION:</div>
                       <div className="font-mono" style={{ fontSize: '0.9rem' }}>
                         Expected: {r.qtyOrdered} | Received: {r.qtyReceived ?? '— (not counted)'}
                       </div>
@@ -271,26 +271,26 @@ export const DiscrepanciesView: React.FC<DiscrepanciesViewProps> = ({
                     <div
                       style={{
                         padding: '0.75rem 1rem',
-                        backgroundColor: '#0a0f1d',
+                        backgroundColor: 'var(--bg-inset)',
                         borderRadius: 'var(--radius-sm)',
-                        border: '1px solid rgba(239, 68, 68, 0.2)',
+                        border: '1px solid var(--bad-border)',
                         marginBottom: '0.75rem',
                         fontSize: '0.8rem',
                       }}
                     >
-                      <strong style={{ color: '#f87171' }}>Inspection Findings:</strong>
+                      <strong style={{ color: 'var(--bad-text)' }}>Inspection Findings:</strong>
                       {r.cartonDamage !== 'none' && (
-                        <span style={{ marginLeft: '8px', color: '#cbd5e1' }}>
-                          Carton Damage: <strong style={{ color: '#f87171' }}>{r.cartonDamage}</strong>
+                        <span style={{ marginLeft: '8px', color: 'var(--text-main)' }}>
+                          Carton Damage: <strong style={{ color: 'var(--bad-text)' }}>{r.cartonDamage}</strong>
                         </span>
                       )}
                       {r.unitDamage !== 'none' && (
-                        <span style={{ marginLeft: '8px', color: '#cbd5e1' }}>
-                          Unit Damage: <strong style={{ color: '#f87171' }}>{r.unitDamage}</strong>
+                        <span style={{ marginLeft: '8px', color: 'var(--text-main)' }}>
+                          Unit Damage: <strong style={{ color: 'var(--bad-text)' }}>{r.unitDamage}</strong>
                         </span>
                       )}
                       {r.qualityFlags.length > 0 && (
-                        <span style={{ marginLeft: '8px', color: '#e9d5ff' }}>
+                        <span style={{ marginLeft: '8px', color: 'var(--text-main)' }}>
                           Quality Flags: <strong>{r.qualityFlags.join(', ')}</strong>
                         </span>
                       )}
@@ -304,13 +304,13 @@ export const DiscrepanciesView: React.FC<DiscrepanciesViewProps> = ({
                       alignItems: 'center',
                       justifyContent: 'space-between',
                       fontSize: '0.8rem',
-                      color: '#94a3b8',
-                      borderTop: '1px solid rgba(255, 255, 255, 0.05)',
+                      color: 'var(--text-muted)',
+                      borderTop: '1px solid var(--border-subtle)',
                       paddingTop: '0.75rem',
                     }}
                   >
                     <div>
-                      Disposition: <strong style={{ color: '#38bdf8' }}>{r.disposition}</strong>
+                      Disposition: <strong style={{ color: 'var(--info-text)' }}>{r.disposition}</strong>
                     </div>
                     <div className="font-mono" style={{ fontSize: '0.75rem' }}>
                       Operator: {r.operatorId} · {new Date(r.capturedAt).toLocaleString()}

@@ -33,10 +33,10 @@ export const AuditView: React.FC<AuditViewProps> = ({ records, tenantId }) => {
   return (
     <div>
       <div style={{ marginBottom: '1.25rem' }}>
-        <h2 style={{ fontSize: '1.25rem', fontWeight: 700, color: '#f8fafc' }}>
+        <h2 style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--text-main)' }}>
           Evidence Traceability & Audit Verification
         </h2>
-        <p style={{ fontSize: '0.85rem', color: '#94a3b8' }}>
+        <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
           Compliance with Engineering Rules 1 (Tenancy), 4 (Uncertainty), and Honesty Rules (Overrides as Data, Content Hashes).
         </p>
       </div>
@@ -51,28 +51,28 @@ export const AuditView: React.FC<AuditViewProps> = ({ records, tenantId }) => {
         }}
       >
         {/* Tenancy Rule 1 Check */}
-        <div className="card-panel" style={{ padding: '1.15rem', borderLeft: '4px solid #10b981' }}>
+        <div className="card-panel" style={{ padding: '1.15rem', borderLeft: '4px solid var(--ok)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.4rem' }}>
-            <Building2 size={18} style={{ color: '#34d399' }} />
-            <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#34d399' }}>
+            <Building2 size={18} style={{ color: 'var(--ok-text)' }} />
+            <span style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--ok-text)' }}>
               RULE 1: TENANCY ISOLATION VERIFIED
             </span>
           </div>
-          <div style={{ fontSize: '0.825rem', color: '#cbd5e1' }}>
-            Currently active scope: <code className="font-mono" style={{ color: '#38bdf8' }}>{tenantId}</code>.
+          <div style={{ fontSize: '0.825rem', color: 'var(--text-main)' }}>
+            Currently active scope: <code className="font-mono" style={{ color: 'var(--info-text)' }}>{tenantId}</code>.
             Only records matching this tenant are loaded into memory. Other tenants see zero rows.
           </div>
         </div>
 
         {/* Content Hashes Check */}
-        <div className="card-panel" style={{ padding: '1.15rem', borderLeft: '4px solid #3b82f6' }}>
+        <div className="card-panel" style={{ padding: '1.15rem', borderLeft: '4px solid var(--accent-primary)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.4rem' }}>
-            <Hash size={18} style={{ color: '#60a5fa' }} />
-            <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#60a5fa' }}>
+            <Hash size={18} style={{ color: 'var(--info-text)' }} />
+            <span style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--info-text)' }}>
               SHA-256 CONTENT HASH & HASH CHAIN
             </span>
           </div>
-          <div style={{ fontSize: '0.825rem', color: '#cbd5e1' }}>
+          <div style={{ fontSize: '0.825rem', color: 'var(--text-main)' }}>
             Each record carries a SHA-256 content hash of its canonical content. Every record creation and override is appended to this organisation's hash chain, where each entry includes the previous entry's hash. Integrity verification recomputes both, so edits made outside the app are detected. This is tamper detection, not immutable storage: the chain is kept in this browser's storage, and someone with write access to it could rebuild the entire chain consistently.
           </div>
         </div>
@@ -150,17 +150,17 @@ export const AuditView: React.FC<AuditViewProps> = ({ records, tenantId }) => {
       <div className="card-panel" style={{ marginBottom: '1.5rem' }}>
         <div className="card-panel-header">
           <div className="card-panel-title">
-            <History size={18} style={{ color: '#f59e0b' }} />
+            <History size={18} style={{ color: 'var(--warn)' }} />
             <span>Operator Override Audit Trail ("Overrides are Data")</span>
           </div>
-          <span className="badge" style={{ backgroundColor: '#1e293b', color: '#fbbf24' }}>
+          <span className="badge" style={{ backgroundColor: 'var(--bg-card-subtle)', color: 'var(--warn-text)' }}>
             {overriddenRecords.length} OVERRIDES RECORDED
           </span>
         </div>
 
         <div className="card-panel-body">
           {overriddenRecords.length === 0 ? (
-            <div style={{ padding: '2rem', textAlign: 'center', color: '#64748b', fontSize: '0.85rem' }}>
+            <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-dim)', fontSize: '0.85rem' }}>
               No operator overrides have been applied yet in this session. All decisions reflect the automated comparison engine.
             </div>
           ) : (
@@ -172,7 +172,7 @@ export const AuditView: React.FC<AuditViewProps> = ({ records, tenantId }) => {
                     key={r.recordId}
                     style={{
                       padding: '1rem',
-                      backgroundColor: '#0a0f1d',
+                      backgroundColor: 'var(--bg-inset)',
                       borderRadius: 'var(--radius-sm)',
                       border: '1px solid var(--border-subtle)',
                     }}
@@ -188,41 +188,41 @@ export const AuditView: React.FC<AuditViewProps> = ({ records, tenantId }) => {
                       }}
                     >
                       <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                        <span className="font-mono" style={{ fontWeight: 700, color: '#38bdf8' }}>
+                        <span className="font-mono" style={{ fontWeight: 700, color: 'var(--info-text)' }}>
                           {r.recordId}
                         </span>
-                        <span style={{ fontSize: '0.8rem', color: '#94a3b8' }}>
+                        <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
                           PO: {r.poNumber} L#{r.poLine}
                         </span>
                       </div>
-                      <div className="font-mono" style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
+                      <div className="font-mono" style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
                         Overridden at: {new Date(ov.timestamp).toLocaleString()} by {ov.operatorId}
                       </div>
                     </div>
 
                     <div style={{ display: 'flex', gap: '1rem', marginBottom: '0.5rem', fontSize: '0.825rem' }}>
                       <div>
-                        <span style={{ color: '#64748b' }}>Original Verdict: </span>
-                        <strong style={{ color: '#f87171' }}>{ov.originalStatus}</strong>
+                        <span style={{ color: 'var(--text-dim)' }}>Original Verdict: </span>
+                        <strong style={{ color: 'var(--bad-text)' }}>{ov.originalStatus}</strong>
                       </div>
                       <div>➔</div>
                       <div>
-                        <span style={{ color: '#64748b' }}>Overridden Verdict: </span>
-                        <strong style={{ color: '#34d399' }}>{ov.newStatus}</strong>
+                        <span style={{ color: 'var(--text-dim)' }}>Overridden Verdict: </span>
+                        <strong style={{ color: 'var(--ok-text)' }}>{ov.newStatus}</strong>
                       </div>
                     </div>
 
                     <div
                       style={{
                         padding: '0.5rem 0.75rem',
-                        backgroundColor: '#111827',
+                        backgroundColor: 'var(--bg-inset)',
                         borderRadius: '4px',
                         fontSize: '0.8rem',
-                        color: '#cbd5e1',
-                        borderLeft: '3px solid #f59e0b',
+                        color: 'var(--text-main)',
+                        borderLeft: '3px solid var(--warn)',
                       }}
                     >
-                      <strong style={{ color: '#fbbf24' }}>Justification Reason: </strong>
+                      <strong style={{ color: 'var(--warn-text)' }}>Justification Reason: </strong>
                       {ov.reason}
                     </div>
                   </div>
@@ -237,7 +237,7 @@ export const AuditView: React.FC<AuditViewProps> = ({ records, tenantId }) => {
       <div className="card-panel">
         <div className="card-panel-header">
           <div className="card-panel-title">
-            <Hash size={18} style={{ color: '#38bdf8' }} />
+            <Hash size={18} style={{ color: 'var(--info-text)' }} />
             <span>SHA-256 content hashes</span>
           </div>
           <span style={{ fontSize: '0.75rem', color: 'var(--text-dim)' }}>
@@ -260,17 +260,17 @@ export const AuditView: React.FC<AuditViewProps> = ({ records, tenantId }) => {
             <tbody>
               {records.slice(0, 15).map((r) => (
                 <tr key={r.recordId}>
-                  <td className="font-mono" style={{ fontWeight: 600, color: '#38bdf8' }}>
+                  <td className="font-mono" style={{ fontWeight: 600, color: 'var(--info-text)' }}>
                     {r.recordId}
                   </td>
-                  <td className="font-mono" style={{ color: '#cbd5e1' }}>
+                  <td className="font-mono" style={{ color: 'var(--text-main)' }}>
                     {r.unitId}
                   </td>
                   <td className="font-mono">
                     {r.poNumber} #{r.poLine}
                   </td>
                   <td>
-                    <span style={{ fontSize: '0.75rem', fontWeight: 600, color: '#94a3b8' }}>
+                    <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)' }}>
                       {r.status}
                     </span>
                   </td>
@@ -279,10 +279,10 @@ export const AuditView: React.FC<AuditViewProps> = ({ records, tenantId }) => {
                       className="font-mono"
                       style={{
                         fontSize: '0.75rem',
-                        backgroundColor: '#0a0f1d',
+                        backgroundColor: 'var(--bg-inset)',
                         padding: '0.2rem 0.4rem',
                         borderRadius: '4px',
-                        color: '#34d399',
+                        color: 'var(--ok-text)',
                         overflowWrap: 'anywhere',
                         display: 'inline-block',
                         maxWidth: 360,

@@ -168,13 +168,13 @@ export const ReceivingForm: React.FC<ReceivingFormProps> = ({
       poNumber: manualPO.poNumber.trim().toUpperCase(),
       poLine: 1,
       orgId: tenantId,
-      supplier: manualPO.supplier || 'Dock Inbound Supplier',
+      supplier: manualPO.supplier || '',
       sku: manualPO.sku.trim().toUpperCase(),
-      asin: 'B0CUSTOM001',
-      productTitle: manualPO.productTitle || 'Manual Dock Delivery Item',
-      specColour: 'standard',
-      specVariant: 'standard',
-      specComponents: 'unit',
+      asin: '', // not entered on a manual PO
+      productTitle: manualPO.productTitle || '',
+      specColour: '',
+      specVariant: '',
+      specComponents: '',
       cartonsOrdered: Number(manualPO.cartonsOrdered) || 1,
       unitsPerCartonOrdered: Number(manualPO.unitsPerCartonOrdered) || 1,
       qtyOrdered: (Number(manualPO.cartonsOrdered) || 1) * (Number(manualPO.unitsPerCartonOrdered) || 1),
@@ -257,11 +257,8 @@ export const ReceivingForm: React.FC<ReceivingFormProps> = ({
       cartonDamage,
       unitDamage,
       qualityFlags,
-      photoRefs: [
-        `fixtures/receiving/${unitId}_pallet.jpg`,
-        `fixtures/receiving/${unitId}_carton.jpg`,
-        `fixtures/receiving/${unitId}_unit.jpg`,
-      ],
+      // A manual receipt has no photo; photo evidence comes from the Inspect flow
+      photoRefs: [],
       operatorId,
       capturedAt: now,
       status: comparison.status,
@@ -283,23 +280,20 @@ export const ReceivingForm: React.FC<ReceivingFormProps> = ({
       {/* Header */}
       <div className="card-panel-header">
         <div className="card-panel-title">
-          <Barcode size={19} style={{ color: '#38bdf8' }} />
+          <Barcode size={19} style={{ color: 'var(--info-text)' }} />
           <span>Inbound Dock Receiving Terminal</span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
           <button
             type="button"
             className="btn-secondary"
-            style={{ padding: '0.25rem 0.6rem', fontSize: '0.75rem', borderColor: '#3b82f6', color: '#93c5fd' }}
+            style={{ padding: '0.25rem 0.6rem', fontSize: '0.75rem', borderColor: 'var(--accent-primary)', color: 'var(--info-text)' }}
             onClick={() => setShowManualPOModal(true)}
             title="Create manual PO for incoming shipment"
           >
             <PlusCircle size={13} />
             + Custom PO
           </button>
-          <span style={{ fontSize: '0.75rem', color: '#94a3b8', fontFamily: 'var(--font-mono)' }}>
-            STATION: BAY-03
-          </span>
         </div>
       </div>
 
@@ -309,10 +303,10 @@ export const ReceivingForm: React.FC<ReceivingFormProps> = ({
           <div
             style={{
               padding: '0.85rem 1rem',
-              backgroundColor: 'rgba(16, 185, 129, 0.15)',
-              border: '1px solid #10b981',
+              backgroundColor: 'var(--ok-bg)',
+              border: '1px solid var(--ok)',
               borderRadius: 'var(--radius-sm)',
-              color: '#34d399',
+              color: 'var(--ok-text)',
               fontSize: '0.85rem',
               marginBottom: '1rem',
               display: 'flex',
@@ -363,7 +357,7 @@ export const ReceivingForm: React.FC<ReceivingFormProps> = ({
         {selectedPOLine && (
           <div
             style={{
-              backgroundColor: '#0a0f1d',
+              backgroundColor: 'var(--bg-inset)',
               padding: '1rem',
               borderRadius: 'var(--radius-sm)',
               border: '1px solid var(--border-subtle)',
@@ -372,22 +366,22 @@ export const ReceivingForm: React.FC<ReceivingFormProps> = ({
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.5rem' }}>
               <div>
-                <span style={{ fontSize: '0.725rem', color: '#64748b', textTransform: 'uppercase', fontWeight: 700 }}>
+                <span style={{ fontSize: '0.725rem', color: 'var(--text-dim)', textTransform: 'uppercase', fontWeight: 700 }}>
                   Supplier & Product Description
                 </span>
-                <div style={{ fontWeight: 600, color: '#f8fafc', fontSize: '0.925rem' }}>
+                <div style={{ fontWeight: 600, color: 'var(--text-main)', fontSize: '0.925rem' }}>
                   {selectedPOLine.productTitle}
                 </div>
-                <div style={{ fontSize: '0.8rem', color: '#94a3b8', marginTop: '2px' }}>
-                  Supplier: <strong style={{ color: '#cbd5e1' }}>{selectedPOLine.supplier}</strong>
+                <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                  Supplier: <strong style={{ color: 'var(--text-main)' }}>{selectedPOLine.supplier}</strong>
                 </div>
               </div>
 
               <div style={{ textAlign: 'right' }}>
-                <span style={{ fontSize: '0.725rem', color: '#64748b', textTransform: 'uppercase', fontWeight: 700 }}>
+                <span style={{ fontSize: '0.725rem', color: 'var(--text-dim)', textTransform: 'uppercase', fontWeight: 700 }}>
                   Expected Units
                 </span>
-                <div className="font-mono" style={{ fontSize: '1.25rem', fontWeight: 800, color: '#38bdf8' }}>
+                <div className="font-mono" style={{ fontSize: '1.25rem', fontWeight: 800, color: 'var(--info-text)' }}>
                   {selectedPOLine.qtyOrdered} <span style={{ fontSize: '0.75rem' }}>units</span>
                 </div>
               </div>
@@ -398,22 +392,22 @@ export const ReceivingForm: React.FC<ReceivingFormProps> = ({
                 display: 'flex',
                 gap: '0.75rem',
                 flexWrap: 'wrap',
-                borderTop: '1px solid rgba(255,255,255,0.06)',
+                borderTop: '1px solid var(--border-subtle)',
                 paddingTop: '0.5rem',
                 fontSize: '0.775rem',
-                color: '#cbd5e1',
+                color: 'var(--text-main)',
               }}
             >
               <div>
-                SKU: <code className="font-mono" style={{ color: '#38bdf8', fontWeight: 600 }}>{selectedPOLine.sku}</code>
+                SKU: <code className="font-mono" style={{ color: 'var(--info-text)', fontWeight: 600 }}>{selectedPOLine.sku}</code>
               </div>
               <div>•</div>
               <div>
-                Packaging: <strong style={{ color: '#f8fafc' }}>{selectedPOLine.cartonsOrdered}</strong> ctns @ <strong style={{ color: '#f8fafc' }}>{selectedPOLine.unitsPerCartonOrdered}</strong> units/ctn
+                Packaging: <strong style={{ color: 'var(--text-main)' }}>{selectedPOLine.cartonsOrdered}</strong> ctns @ <strong style={{ color: 'var(--text-main)' }}>{selectedPOLine.unitsPerCartonOrdered}</strong> units/ctn
               </div>
               <div>•</div>
               <div>
-                Spec: <span style={{ color: '#a5b4fc' }}>{selectedPOLine.specColour} / {selectedPOLine.specVariant}</span>
+                Spec: <span style={{ color: 'var(--over-text)' }}>{selectedPOLine.specColour} / {selectedPOLine.specVariant}</span>
               </div>
             </div>
           </div>
@@ -425,7 +419,7 @@ export const ReceivingForm: React.FC<ReceivingFormProps> = ({
             style={{
               fontSize: '0.725rem',
               fontWeight: 700,
-              color: '#94a3b8',
+              color: 'var(--text-muted)',
               textTransform: 'uppercase',
               letterSpacing: '0.04em',
               marginBottom: '0.4rem',
@@ -434,7 +428,7 @@ export const ReceivingForm: React.FC<ReceivingFormProps> = ({
               gap: '4px',
             }}
           >
-            <Sparkles size={13} style={{ color: '#f59e0b' }} />
+            <Sparkles size={13} style={{ color: 'var(--warn)' }} />
             Buildathon Test Presets (Instant Simulation):
           </div>
           <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
@@ -449,7 +443,7 @@ export const ReceivingForm: React.FC<ReceivingFormProps> = ({
             <button
               type="button"
               className="btn-secondary"
-              style={{ fontSize: '0.75rem', padding: '0.35rem 0.65rem', color: '#fbbf24', borderColor: 'rgba(245, 158, 11, 0.4)' }}
+              style={{ fontSize: '0.75rem', padding: '0.35rem 0.65rem', color: 'var(--warn-text)', borderColor: 'var(--warn-border)' }}
               onClick={() => applyPresetScenario('short')}
             >
               {presetLabel(selectedPOLine, 'short')}
@@ -457,7 +451,7 @@ export const ReceivingForm: React.FC<ReceivingFormProps> = ({
             <button
               type="button"
               className="btn-secondary"
-              style={{ fontSize: '0.75rem', padding: '0.35rem 0.65rem', color: '#a5b4fc', borderColor: 'rgba(99, 102, 241, 0.4)' }}
+              style={{ fontSize: '0.75rem', padding: '0.35rem 0.65rem', color: 'var(--over-text)', borderColor: 'var(--over-border)' }}
               onClick={() => applyPresetScenario('over')}
             >
               {presetLabel(selectedPOLine, 'over')}
@@ -465,7 +459,7 @@ export const ReceivingForm: React.FC<ReceivingFormProps> = ({
             <button
               type="button"
               className="btn-secondary"
-              style={{ fontSize: '0.75rem', padding: '0.35rem 0.65rem', color: '#fda4af', borderColor: 'rgba(225, 29, 72, 0.4)' }}
+              style={{ fontSize: '0.75rem', padding: '0.35rem 0.65rem', color: 'var(--bad-text)', borderColor: 'var(--bad-border)' }}
               onClick={() => applyPresetScenario('wrong_sku')}
             >
               Wrong SKU
@@ -473,7 +467,7 @@ export const ReceivingForm: React.FC<ReceivingFormProps> = ({
             <button
               type="button"
               className="btn-secondary"
-              style={{ fontSize: '0.75rem', padding: '0.35rem 0.65rem', color: '#f87171', borderColor: 'rgba(239, 68, 68, 0.4)' }}
+              style={{ fontSize: '0.75rem', padding: '0.35rem 0.65rem', color: 'var(--bad-text)', borderColor: 'var(--bad-border)' }}
               onClick={() => applyPresetScenario('damaged')}
             >
               Damaged
@@ -481,7 +475,7 @@ export const ReceivingForm: React.FC<ReceivingFormProps> = ({
             <button
               type="button"
               className="btn-secondary"
-              style={{ fontSize: '0.75rem', padding: '0.35rem 0.65rem', color: '#c7d2fe', borderColor: 'rgba(79, 70, 229, 0.4)' }}
+              style={{ fontSize: '0.75rem', padding: '0.35rem 0.65rem', color: 'var(--over-text)', borderColor: 'var(--over-border)' }}
               onClick={() => applyPresetScenario('uncertain')}
             >
               Uncertain
@@ -587,7 +581,7 @@ export const ReceivingForm: React.FC<ReceivingFormProps> = ({
           <div
             style={{
               padding: '0.6rem 0.85rem',
-              backgroundColor: '#0a0f1d',
+              backgroundColor: 'var(--bg-inset)',
               borderRadius: 'var(--radius-sm)',
               border: '1px solid var(--border-subtle)',
               marginBottom: '1.25rem',
@@ -597,10 +591,10 @@ export const ReceivingForm: React.FC<ReceivingFormProps> = ({
               fontSize: '0.8rem',
             }}
           >
-            <span style={{ color: '#94a3b8' }}>
+            <span style={{ color: 'var(--text-muted)' }}>
               Packaging Multiplication: {cartonsReceived || 0} cartons × {unitsPerCartonCounted || 0} units
             </span>
-            <span className="font-mono" style={{ fontWeight: 700, color: '#f8fafc', fontSize: '0.9rem' }}>
+            <span className="font-mono" style={{ fontWeight: 700, color: 'var(--text-main)', fontSize: '0.9rem' }}>
               = {totalReceived} Total Units
             </span>
           </div>
@@ -676,9 +670,9 @@ export const ReceivingForm: React.FC<ReceivingFormProps> = ({
                       borderRadius: 'var(--radius-sm)',
                       fontSize: '0.8rem',
                       fontWeight: 600,
-                      border: isActive ? '1px solid #e11d48' : '1px solid var(--border-subtle)',
-                      backgroundColor: isActive ? 'rgba(225, 29, 72, 0.25)' : '#0d1526',
-                      color: isActive ? '#fda4af' : 'var(--text-muted)',
+                      border: isActive ? '1px solid var(--bad)' : '1px solid var(--border-subtle)',
+                      backgroundColor: isActive ? 'var(--bad-bg)' : 'var(--bg-inset)',
+                      color: isActive ? 'var(--bad-text)' : 'var(--text-muted)',
                       transition: 'all 0.15s',
                     }}
                   >
@@ -701,11 +695,11 @@ export const ReceivingForm: React.FC<ReceivingFormProps> = ({
                 display: 'flex',
                 gap: '0.75rem',
                 padding: '0.85rem',
-                backgroundColor: '#0a0f1d',
+                backgroundColor: 'var(--bg-inset)',
                 borderRadius: 'var(--radius-sm)',
                 border: '1px solid var(--border-subtle)',
                 fontSize: '0.825rem',
-                color: '#cbd5e1',
+                color: 'var(--text-main)',
                 alignItems: 'center',
               }}
             >
@@ -714,24 +708,21 @@ export const ReceivingForm: React.FC<ReceivingFormProps> = ({
                   width: '38px',
                   height: '38px',
                   borderRadius: '4px',
-                  backgroundColor: '#1e293b',
+                  backgroundColor: 'var(--bg-card-subtle)',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  color: '#38bdf8',
+                  color: 'var(--info-text)',
                 }}
               >
                 <Camera size={22} />
               </div>
               <div style={{ flex: 1 }}>
-                <div style={{ fontWeight: 600 }}>Standard Multi-Angle Fixture Attached</div>
-                <div style={{ fontSize: '0.725rem', color: '#64748b' }}>
-                  pallet_view.jpg, carton_label.jpg, unit_barcode.jpg
+                <div style={{ fontWeight: 600 }}>No photo attached to a manual receipt</div>
+                <div style={{ fontSize: '0.725rem', color: 'var(--text-dim)' }}>
+                  For photo evidence and AI verification, use Inspect.
                 </div>
               </div>
-              <span className="badge" style={{ backgroundColor: '#1e293b', color: '#93c5fd' }}>
-                3 PHOTOS ATTACHED
-              </span>
             </div>
           </div>
 
@@ -803,13 +794,13 @@ export const ReceivingForm: React.FC<ReceivingFormProps> = ({
           >
             <div className="modal-content" style={{ maxWidth: '520px' }}>
               <div className="modal-header">
-                <h3 style={{ fontSize: '1.05rem', fontWeight: 700, color: '#f8fafc' }}>
+                <h3 style={{ fontSize: '1.05rem', fontWeight: 700, color: 'var(--text-main)' }}>
                   Create Inbound Purchase Order
                 </h3>
                 <button
                   type="button"
                   onClick={() => setShowManualPOModal(false)}
-                  style={{ color: '#94a3b8' }}
+                  style={{ color: 'var(--text-muted)' }}
                   aria-label="Close modal"
                 >
                   <X size={20} />

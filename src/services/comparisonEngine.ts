@@ -19,6 +19,8 @@ export interface ComparisonInput {
   unitDamage: DamageGrade;
   qualityFlags: QualityFlag[];
   identityMatchOverride?: 'yes' | 'no' | 'uncertain';
+  /** Evidence left a finding unresolved (e.g. a CHALLENGED inspection finding); never MATCHED. */
+  uncertain?: boolean;
 }
 
 /**
@@ -72,9 +74,16 @@ export function compareShipment(input: ComparisonInput): ComparisonResult {
   });
 
   // Check 2: Quantity Reconciliation Check
-  let qtyVerdict: 'PASS' | 'FAIL' = 'PASS';
+  // NaN / negative / fractional counts compare as neither short nor over, so they would silently
+  // read as MATCHED; they are UNCERTAIN instead (live previews call this with partial input, so no throw).
+  const isCount = (n: number) => Number.isSafeInteger(n) && n >= 0;
+  const qtyValid = isCount(qtyReceived) && isCount(qtyOrdered);
+  let qtyVerdict: 'PASS' | 'FAIL' | 'UNCERTAIN' = 'PASS';
   let qtyDetails = 'Exact count matched. Total received matches total ordered.';
-  if (qtyDifference < 0) {
+  if (!qtyValid) {
+    qtyVerdict = 'UNCERTAIN';
+    qtyDetails = `Quantities are not valid whole-unit counts (${qtyReceived} received vs ${qtyOrdered} ordered). Recount required.`;
+  } else if (qtyDifference < 0) {
     qtyVerdict = 'FAIL';
     qtyDetails = `Shortage detected: Missing ${Math.abs(qtyDifference)} unit(s) (${qtyReceived} received vs ${qtyOrdered} ordered).`;
   } else if (qtyDifference > 0) {
@@ -141,11 +150,11 @@ export function compareShipment(input: ComparisonInput): ComparisonResult {
   // generic quality flag; damage and quality facts stay in `discrepancies`,
   // cartonDamage/unitDamage and qualityFlags.
   const isUncertain =
-    cartonDamage === 'uncertain' || unitDamage === 'uncertain' || input.identityMatchOverride === 'uncertain';
+    !qtyValid || !!input.uncertain || cartonDamage === 'uncertain' || unitDamage === 'uncertain' || input.identityMatchOverride === 'uncertain';
   const discrepancies: ReceivingStatus[] = [];
   if (!isSkuMatched) discrepancies.push('WRONG_PRODUCT');
-  if (qtyDifference < 0) discrepancies.push('SHORT_RECEIVED');
-  if (qtyDifference > 0) discrepancies.push('OVER_RECEIVED');
+  if (qtyValid && qtyDifference < 0) discrepancies.push('SHORT_RECEIVED');
+  if (qtyValid && qtyDifference > 0) discrepancies.push('OVER_RECEIVED');
   if (hasCartonDamage || hasUnitDamage) discrepancies.push('DAMAGED');
   if (hasQualityFlags) discrepancies.push('QUALITY_DISCREPANCY');
   if (isUncertain) discrepancies.push('UNCERTAIN');

@@ -87,10 +87,10 @@ export const TerminalView: React.FC<TerminalViewProps> = ({
   return (
     <div>
       <div style={{ marginBottom: '1.25rem' }}>
-        <h2 style={{ fontSize: '1.25rem', fontWeight: 700, color: '#f8fafc' }}>
+        <h2 style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--text-main)' }}>
           Dock Receiving Workstation
         </h2>
-        <p style={{ fontSize: '0.85rem', color: '#94a3b8' }}>
+        <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
           Physical shipment verification, automated PO line reconciliation, and damage grading for inbound pallets.
         </p>
       </div>
@@ -163,10 +163,7 @@ export const TerminalView: React.FC<TerminalViewProps> = ({
                   cartonDamage: liveValues.cartonDamage,
                   unitDamage: liveValues.unitDamage,
                   qualityFlags: liveValues.qualityFlags,
-                  photoRefs: [
-                    `fixtures/receiving/${previewUnitId}_pallet.jpg`,
-                    `fixtures/receiving/${previewUnitId}_carton.jpg`,
-                  ],
+                  photoRefs: [],
                   operatorId,
                   capturedAt: new Date().toISOString(),
                   status: liveComparison.status,
@@ -188,7 +185,7 @@ export const TerminalView: React.FC<TerminalViewProps> = ({
                 alignItems: 'center',
                 justifyContent: 'center',
                 minHeight: '350px',
-                color: '#64748b',
+                color: 'var(--text-dim)',
               }}
             >
               Select a Purchase Order line to begin comparison preview

@@ -1,6 +1,12 @@
 const sharp = require('sharp');
 const { computeSha256 } = require('./security');
 
+// Long-edge cap for crops: the vision model's recommended input size, so a crop is sent to the
+// Blind Verifier byte-for-byte as stored and cropHash is the hash of exactly what the model saw.
+const MAX_IMAGE_EDGE = 1568;
+const JPEG_QUALITY = 85;
+const toJpegDataUrl = (buffer) => `data:image/jpeg;base64,${buffer.toString('base64')}`;
+
 /**
  * Crop Engine for PRD-3 DEBATE Adversarial Verification
  * 
@@ -41,18 +47,21 @@ async function extractCrop(imageBuffer, bbox, paddingPercent = 0.04) {
   const paddedXmax = Math.min(1, xmax + padX);
   const paddedYmax = Math.min(1, ymax + padY);
 
-  const left = Math.round(paddedXmin * width);
-  const top = Math.round(paddedYmin * height);
-  const extractWidth = Math.max(10, Math.min(width - left, Math.round((paddedXmax - paddedXmin) * width)));
-  const extractHeight = Math.max(10, Math.min(height - top, Math.round((paddedYmax - paddedYmin) * height)));
+  // Size first (min 10px, never larger than the image), then shift the origin so the box stays inside
+  const extractWidth = Math.min(width, Math.max(10, Math.round((paddedXmax - paddedXmin) * width)));
+  const extractHeight = Math.min(height, Math.max(10, Math.round((paddedYmax - paddedYmin) * height)));
+  const left = Math.min(Math.round(paddedXmin * width), width - extractWidth);
+  const top = Math.min(Math.round(paddedYmin * height), height - extractHeight);
 
   const cropBuffer = await sharp(imageBuffer)
     .extract({ left, top, width: extractWidth, height: extractHeight })
-    .png()
+    .resize({ width: MAX_IMAGE_EDGE, height: MAX_IMAGE_EDGE, fit: 'inside', withoutEnlargement: true })
+    .flatten({ background: '#ffffff' })
+    .jpeg({ quality: JPEG_QUALITY })
     .toBuffer();
 
   const cropHash = computeSha256(cropBuffer);
-  const cropBase64 = `data:image/png;base64,${cropBuffer.toString('base64')}`;
+  const cropBase64 = toJpegDataUrl(cropBuffer);
 
   return {
     cropBuffer,
@@ -81,8 +90,8 @@ async function generateAnnotatedImage(imageBuffer, claims = []) {
   const height = metadata.height || 600;
 
   if (!claims || claims.length === 0) {
-    const annotatedBase64 = `data:image/png;base64,${imageBuffer.toString('base64')}`;
-    return { annotatedBase64, annotatedBuffer: imageBuffer };
+    const annotatedBuffer = await sharp(imageBuffer).flatten({ background: '#ffffff' }).jpeg({ quality: JPEG_QUALITY }).toBuffer();
+    return { annotatedBase64: toJpegDataUrl(annotatedBuffer), annotatedBuffer };
   }
 
   // Build SVG overlay for bounding boxes
@@ -109,7 +118,7 @@ async function generateAnnotatedImage(imageBuffer, claims = []) {
       badgeColor = '#f59e0b';
     }
 
-    const labelText = `${claim.id || `C${index+1}`}: ${claim.type || 'DEFECT'}`;
+    const labelText = `${claim.claimId || claim.id || `C${index+1}`}: ${claim.claimType || claim.type || 'DEFECT'}`;
 
     return `
       <g>
@@ -128,10 +137,11 @@ async function generateAnnotatedImage(imageBuffer, claims = []) {
 
   const annotatedBuffer = await sharp(imageBuffer)
     .composite([{ input: Buffer.from(svgOverlay), top: 0, left: 0 }])
-    .png()
+    .flatten({ background: '#ffffff' })
+    .jpeg({ quality: JPEG_QUALITY })
     .toBuffer();
 
-  const annotatedBase64 = `data:image/png;base64,${annotatedBuffer.toString('base64')}`;
+  const annotatedBase64 = toJpegDataUrl(annotatedBuffer);
 
   return {
     annotatedBuffer,
@@ -140,6 +150,7 @@ async function generateAnnotatedImage(imageBuffer, claims = []) {
 }
 
 module.exports = {
+  MAX_IMAGE_EDGE,
   extractCrop,
   generateAnnotatedImage
 };

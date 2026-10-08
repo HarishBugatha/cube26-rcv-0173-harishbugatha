@@ -51,42 +51,42 @@ export const ComparisonCard: React.FC<ComparisonCardProps> = ({
       case 'ACCEPT_TO_PREP':
         return {
           label: 'ACCEPT & ROUTE TO PREP (STEP 02)',
-          color: '#10b981',
-          bg: 'rgba(16, 185, 129, 0.12)',
-          border: '#059669',
+          color: 'var(--ok)',
+          bg: 'var(--ok-bg)',
+          border: 'var(--ok)',
           desc: '100% compliant. Pallet cleared for Prep Manager compliance labeling.',
         };
       case 'ACCEPT_WITH_SHORTAGE':
         return {
           label: 'ACCEPT PARTIAL + LOG SHORTAGE CLAIM',
-          color: '#fbbf24',
-          bg: 'rgba(245, 158, 11, 0.12)',
-          border: '#d97706',
+          color: 'var(--warn-text)',
+          bg: 'var(--warn-bg)',
+          border: 'var(--warn)',
           desc: `Accept ${receivedData.qtyReceived} units. Push shortage evidence to Recovery Manager for supplier deduction.`,
         };
       case 'HOLD_SURPLUS':
         return {
           label: 'HOLD SURPLUS IN DOCK BUFFER',
-          color: '#a5b4fc',
-          bg: 'rgba(99, 102, 241, 0.12)',
-          border: '#6366f1',
+          color: 'var(--over-text)',
+          bg: 'var(--over-bg)',
+          border: 'var(--over)',
           desc: `Excess units (+${qtyDifference}) quarantined until procurement confirms PO amendment.`,
         };
       case 'HOLD_QUARANTINE_RECOVERY':
         return {
           label: 'HOLD IN QUARANTINE (CLAIMS QUEUE)',
-          color: '#f87171',
-          bg: 'rgba(239, 68, 68, 0.12)',
-          border: '#dc2626',
+          color: 'var(--bad-text)',
+          bg: 'var(--bad-bg)',
+          border: 'var(--bad)',
           desc: 'Blocked at dock. Forward photographic proof to Step 05 Recovery Manager for supplier dispute.',
         };
       case 'SUPERVISOR_REVIEW':
       default:
         return {
           label: 'HOLD FOR LEAD / SUPERVISOR INSPECTION',
-          color: '#c7d2fe',
-          bg: 'rgba(99, 102, 241, 0.12)',
-          border: '#4f46e5',
+          color: 'var(--over-text)',
+          bg: 'var(--over-bg)',
+          border: 'var(--over)',
           desc: 'Inconclusive visual evidence. Physical inspection required before release.',
         };
     }
@@ -99,11 +99,11 @@ export const ComparisonCard: React.FC<ComparisonCardProps> = ({
       {/* Header */}
       <div className="card-panel-header">
         <div className="card-panel-title">
-          <ShieldCheck size={19} style={{ color: '#38bdf8' }} />
+          <ShieldCheck size={19} style={{ color: 'var(--info-text)' }} />
           <span>Automated Receiving Reconciliation</span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-          <span style={{ fontSize: '0.75rem', color: '#94a3b8', fontFamily: 'var(--font-mono)' }}>
+          <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
             PO: {expectedData.poNumber} [L#{expectedData.poLine}]
           </span>
           <DiscrepancyBadge status={status} size="sm" />
@@ -127,7 +127,7 @@ export const ComparisonCard: React.FC<ComparisonCardProps> = ({
           {/* 1. EXPECTED */}
           <div
             style={{
-              backgroundColor: '#0a0f1d',
+              backgroundColor: 'var(--bg-inset)',
               border: '1px solid var(--border-subtle)',
               borderRadius: 'var(--radius-sm)',
               padding: '0.85rem',
@@ -136,13 +136,13 @@ export const ComparisonCard: React.FC<ComparisonCardProps> = ({
               justifyContent: 'space-between',
             }}
           >
-            <div style={{ fontSize: '0.7rem', color: '#94a3b8', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+            <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
               1. EXPECTED
             </div>
-            <div className="font-mono" style={{ fontSize: '1.65rem', fontWeight: 800, color: '#94a3b8', lineHeight: 1.1, margin: '4px 0' }}>
+            <div className="font-mono" style={{ fontSize: '1.65rem', fontWeight: 800, color: 'var(--text-muted)', lineHeight: 1.1, margin: '4px 0' }}>
               {expectedData.qtyOrdered} <span style={{ fontSize: '0.75rem', fontWeight: 600 }}>units</span>
             </div>
-            <div className="font-mono" style={{ fontSize: '0.725rem', color: '#64748b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            <div className="font-mono" style={{ fontSize: '0.725rem', color: 'var(--text-dim)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
               {expectedData.sku}
             </div>
           </div>
@@ -150,8 +150,8 @@ export const ComparisonCard: React.FC<ComparisonCardProps> = ({
           {/* 2. RECEIVED */}
           <div
             style={{
-              backgroundColor: '#0a0f1d',
-              border: `1px solid ${isSkuMatched ? 'var(--border-subtle)' : '#e11d48'}`,
+              backgroundColor: 'var(--bg-inset)',
+              border: `1px solid ${isSkuMatched ? 'var(--border-subtle)' : 'var(--bad)'}`,
               borderRadius: 'var(--radius-sm)',
               padding: '0.85rem',
               display: 'flex',
@@ -159,7 +159,7 @@ export const ComparisonCard: React.FC<ComparisonCardProps> = ({
               justifyContent: 'space-between',
             }}
           >
-            <div style={{ fontSize: '0.7rem', color: '#94a3b8', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+            <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
               2. RECEIVED
             </div>
             <div
@@ -167,7 +167,7 @@ export const ComparisonCard: React.FC<ComparisonCardProps> = ({
               style={{
                 fontSize: '1.65rem',
                 fontWeight: 800,
-                color: qtyDifference === 0 ? '#34d399' : qtyDifference < 0 ? '#fbbf24' : '#a5b4fc',
+                color: qtyDifference === 0 ? 'var(--ok-text)' : qtyDifference < 0 ? 'var(--warn-text)' : 'var(--over-text)',
                 lineHeight: 1.1,
                 margin: '4px 0',
               }}
@@ -178,7 +178,7 @@ export const ComparisonCard: React.FC<ComparisonCardProps> = ({
               className="font-mono"
               style={{
                 fontSize: '0.725rem',
-                color: isSkuMatched ? '#34d399' : '#f87171',
+                color: isSkuMatched ? 'var(--ok-text)' : 'var(--bad-text)',
                 fontWeight: 600,
                 whiteSpace: 'nowrap',
                 overflow: 'hidden',
@@ -192,7 +192,7 @@ export const ComparisonCard: React.FC<ComparisonCardProps> = ({
           {/* 3. DIFFERENCE */}
           <div
             style={{
-              backgroundColor: '#0a0f1d',
+              backgroundColor: 'var(--bg-inset)',
               border: '1px solid var(--border-subtle)',
               borderRadius: 'var(--radius-sm)',
               padding: '0.85rem',
@@ -201,7 +201,7 @@ export const ComparisonCard: React.FC<ComparisonCardProps> = ({
               justifyContent: 'space-between',
             }}
           >
-            <div style={{ fontSize: '0.7rem', color: '#94a3b8', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+            <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
               3. DIFFERENCE
             </div>
             <div
@@ -209,7 +209,7 @@ export const ComparisonCard: React.FC<ComparisonCardProps> = ({
               style={{
                 fontSize: '1.65rem',
                 fontWeight: 800,
-                color: qtyDifference === 0 ? '#34d399' : qtyDifference < 0 ? '#fbbf24' : '#a5b4fc',
+                color: qtyDifference === 0 ? 'var(--ok-text)' : qtyDifference < 0 ? 'var(--warn-text)' : 'var(--over-text)',
                 lineHeight: 1.1,
                 margin: '4px 0',
               }}
@@ -217,7 +217,7 @@ export const ComparisonCard: React.FC<ComparisonCardProps> = ({
               {qtyDifference >= 0 ? `+${qtyDifference}` : qtyDifference}{' '}
               <span style={{ fontSize: '0.75rem', fontWeight: 600 }}>units</span>
             </div>
-            <div style={{ fontSize: '0.725rem', color: '#94a3b8' }}>
+            <div style={{ fontSize: '0.725rem', color: 'var(--text-muted)' }}>
               {qtyDifference === 0 ? '✓ Balanced' : qtyDifference < 0 ? '⚠ Shortage' : '⚠ Surplus'}
             </div>
           </div>
@@ -225,7 +225,7 @@ export const ComparisonCard: React.FC<ComparisonCardProps> = ({
           {/* 4. STATUS */}
           <div
             style={{
-              backgroundColor: '#0a0f1d',
+              backgroundColor: 'var(--bg-inset)',
               border: `1px solid ${dispInfo.border}`,
               borderRadius: 'var(--radius-sm)',
               padding: '0.85rem',
@@ -234,7 +234,7 @@ export const ComparisonCard: React.FC<ComparisonCardProps> = ({
               justifyContent: 'space-between',
             }}
           >
-            <div style={{ fontSize: '0.7rem', color: '#94a3b8', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+            <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
               4. FINAL STATUS
             </div>
             <div style={{ margin: '4px 0' }}>
@@ -250,7 +250,7 @@ export const ComparisonCard: React.FC<ComparisonCardProps> = ({
         <div
           style={{
             padding: '0.75rem 1rem',
-            backgroundColor: '#0f172a',
+            backgroundColor: 'var(--bg-inset)',
             borderRadius: 'var(--radius-sm)',
             border: '1px solid var(--border-subtle)',
             marginBottom: '1.25rem',
@@ -262,14 +262,14 @@ export const ComparisonCard: React.FC<ComparisonCardProps> = ({
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <span style={{ fontSize: '0.75rem', color: '#64748b', textTransform: 'uppercase', fontWeight: 700 }}>
+            <span style={{ fontSize: '0.75rem', color: 'var(--text-dim)', textTransform: 'uppercase', fontWeight: 700 }}>
               Mathematical Balance:
             </span>
-            <span className="font-mono" style={{ fontSize: '0.85rem', color: '#e2e8f0' }}>
+            <span className="font-mono" style={{ fontSize: '0.85rem', color: 'var(--text-main)' }}>
               {receivedData.qtyReceived} (received) - {expectedData.qtyOrdered} (expected) ={' '}
               <strong
                 style={{
-                  color: qtyDifference === 0 ? '#34d399' : qtyDifference < 0 ? '#fbbf24' : '#a5b4fc',
+                  color: qtyDifference === 0 ? 'var(--ok-text)' : qtyDifference < 0 ? 'var(--warn-text)' : 'var(--over-text)',
                 }}
               >
                 {qtyDifference >= 0 ? `+${qtyDifference}` : qtyDifference} units
@@ -309,7 +309,7 @@ export const ComparisonCard: React.FC<ComparisonCardProps> = ({
               style={{
                 fontSize: '0.7rem',
                 fontFamily: 'var(--font-mono)',
-                backgroundColor: 'rgba(0,0,0,0.3)',
+                backgroundColor: 'var(--bg-inset)',
                 padding: '0.15rem 0.45rem',
                 borderRadius: '4px',
                 color: dispInfo.color,
@@ -321,7 +321,7 @@ export const ComparisonCard: React.FC<ComparisonCardProps> = ({
           <div style={{ fontSize: '1rem', fontWeight: 700, color: dispInfo.color, marginTop: '2px' }}>
             {dispInfo.label}
           </div>
-          <div style={{ fontSize: '0.825rem', color: '#cbd5e1', marginTop: '4px' }}>
+          <div style={{ fontSize: '0.825rem', color: 'var(--text-main)', marginTop: '4px' }}>
             {dispInfo.desc}
           </div>
         </div>
@@ -332,7 +332,7 @@ export const ComparisonCard: React.FC<ComparisonCardProps> = ({
             style={{
               fontSize: '0.775rem',
               fontWeight: 700,
-              color: '#94a3b8',
+              color: 'var(--text-muted)',
               textTransform: 'uppercase',
               letterSpacing: '0.04em',
               marginBottom: '0.5rem',
@@ -342,7 +342,7 @@ export const ComparisonCard: React.FC<ComparisonCardProps> = ({
             }}
           >
             <span>5-Point Receiving Inspection Matrix</span>
-            <span style={{ fontSize: '0.7rem', color: '#64748b' }}>Deterministic Rules Engine</span>
+            <span style={{ fontSize: '0.7rem', color: 'var(--text-dim)' }}>Deterministic Rules Engine</span>
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.45rem' }}>
@@ -354,23 +354,23 @@ export const ComparisonCard: React.FC<ComparisonCardProps> = ({
                   alignItems: 'center',
                   justifyContent: 'space-between',
                   padding: '0.6rem 0.85rem',
-                  backgroundColor: '#0a0f1d',
+                  backgroundColor: 'var(--bg-inset)',
                   borderRadius: 'var(--radius-sm)',
-                  border: '1px solid rgba(255, 255, 255, 0.05)',
+                  border: '1px solid var(--border-subtle)',
                   fontSize: '0.825rem',
                 }}
               >
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
                   {chk.verdict === 'PASS' ? (
-                    <CheckCircle2 size={16} style={{ color: '#10b981', flexShrink: 0 }} />
+                    <CheckCircle2 size={16} style={{ color: 'var(--ok)', flexShrink: 0 }} />
                   ) : chk.verdict === 'FAIL' ? (
-                    <XCircle size={16} style={{ color: '#ef4444', flexShrink: 0 }} />
+                    <XCircle size={16} style={{ color: 'var(--bad)', flexShrink: 0 }} />
                   ) : (
-                    <HelpCircle size={16} style={{ color: '#818cf8', flexShrink: 0 }} />
+                    <HelpCircle size={16} style={{ color: 'var(--over)', flexShrink: 0 }} />
                   )}
                   <div>
-                    <span style={{ fontWeight: 600, color: '#f1f5f9' }}>{chk.name}:</span>{' '}
-                    <span style={{ color: '#94a3b8', fontSize: '0.8rem' }}>{chk.details}</span>
+                    <span style={{ fontWeight: 600, color: 'var(--text-main)' }}>{chk.name}:</span>{' '}
+                    <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>{chk.details}</span>
                   </div>
                 </div>
 
@@ -383,16 +383,16 @@ export const ComparisonCard: React.FC<ComparisonCardProps> = ({
                     borderRadius: '4px',
                     backgroundColor:
                       chk.verdict === 'PASS'
-                        ? 'rgba(16, 185, 129, 0.2)'
+                        ? 'var(--ok-border)'
                         : chk.verdict === 'FAIL'
-                        ? 'rgba(239, 68, 68, 0.2)'
-                        : 'rgba(99, 102, 241, 0.2)',
+                        ? 'var(--bad-border)'
+                        : 'var(--over-bg)',
                     color:
                       chk.verdict === 'PASS'
-                        ? '#34d399'
+                        ? 'var(--ok-text)'
                         : chk.verdict === 'FAIL'
-                        ? '#f87171'
-                        : '#a5b4fc',
+                        ? 'var(--bad-text)'
+                        : 'var(--over-text)',
                   }}
                 >
                   {chk.verdict}
@@ -406,14 +406,14 @@ export const ComparisonCard: React.FC<ComparisonCardProps> = ({
         <div
           style={{
             padding: '0.75rem 1rem',
-            backgroundColor: '#0a0f1d',
+            backgroundColor: 'var(--bg-inset)',
             border: '1px solid var(--border-subtle)',
             borderRadius: 'var(--radius-sm)',
             fontSize: '0.825rem',
-            color: '#cbd5e1',
+            color: 'var(--text-main)',
           }}
         >
-          <span style={{ fontWeight: 700, color: '#38bdf8' }}>Agent Analysis: </span>
+          <span style={{ fontWeight: 700, color: 'var(--info-text)' }}>Agent Analysis: </span>
           {summaryExplanation}
         </div>
       </div>
@@ -423,7 +423,7 @@ export const ComparisonCard: React.FC<ComparisonCardProps> = ({
         <div
           style={{
             padding: '0.85rem 1.25rem',
-            backgroundColor: '#0a0f1d',
+            backgroundColor: 'var(--bg-inset)',
             borderTop: '1px solid var(--border-subtle)',
             display: 'flex',
             alignItems: 'center',

@@ -46,44 +46,58 @@ function computeSha256(buffer) {
 
 /**
  * Strips all EXIF, GPS, IPTC, and location metadata from an image buffer
- * Converts it to a clean PNG/JPEG buffer without metadata tags
+ * Converts it to a clean PNG (scenario fixtures) or JPEG working copy (uploads, ≤2048 px long edge)
  * @param {Buffer} buffer - Raw uploaded image buffer
  * @param {string} format - Output format ('png' or 'jpeg')
- * @returns {Promise<{ cleanBuffer: Buffer, rawHash: string, cleanHash: string, metadataStripped: boolean }>}
+ * @returns {Promise<{ cleanBuffer: Buffer, rawHash: string, cleanHash: string, metadataStripped: boolean, width: number, height: number }>}
  */
 async function sanitizeImageMetadata(buffer, format = 'png') {
   const rawHash = computeSha256(buffer);
-  
+
+  // Decode first: the real format is checked from the bytes, not from the client-declared MIME.
+  // An undecodable file is rejected (400) rather than passed on raw with its EXIF/GPS intact.
+  let detected;
   try {
-    // Sharp automatically removes all EXIF/GPS metadata when re-encoding unless .withMetadata() is specified
-    let imagePipeline = sharp(buffer).rotate(); // auto-rotate based on EXIF before stripping
-    
-    let cleanBuffer;
-    if (format === 'jpeg' || format === 'jpg') {
-      cleanBuffer = await imagePipeline.jpeg({ quality: 92 }).toBuffer();
-    } else {
-      cleanBuffer = await imagePipeline.png({ compressionLevel: 8 }).toBuffer();
-    }
-
-    const cleanHash = computeSha256(cleanBuffer);
-
-    return {
-      cleanBuffer,
-      rawHash,
-      cleanHash,
-      metadataStripped: true,
-      mimeType: format === 'jpeg' ? 'image/jpeg' : 'image/png'
-    };
-  } catch (err) {
-    console.warn('Sharp metadata sanitization warning, fallback to buffer:', err.message);
-    return {
-      cleanBuffer: buffer,
-      rawHash,
-      cleanHash: rawHash,
-      metadataStripped: false,
-      mimeType: 'image/jpeg'
-    };
+    detected = (await sharp(buffer).metadata()).format;
+  } catch {
+    detected = null;
   }
+  if (!DECODED_FORMATS.includes(detected)) {
+    throw badRequest('Uploaded file is not a decodable JPEG, PNG, WEBP or TIFF image.');
+  }
+
+  // Sharp removes all EXIF/GPS metadata when re-encoding unless .withMetadata() is specified
+  const imagePipeline = sharp(buffer).rotate(); // auto-rotate based on EXIF before stripping
+  const isJpeg = format === 'jpeg' || format === 'jpg';
+  // JPEG = upload working copy: capped at WORKING_MAX_EDGE so reports and model calls stay small.
+  // cleanHash is the hash of this working copy; rawHash stays the hash of the original upload bytes.
+  const { data: cleanBuffer, info } = isJpeg
+    ? await imagePipeline
+        .resize({ width: WORKING_MAX_EDGE, height: WORKING_MAX_EDGE, fit: 'inside', withoutEnlargement: true })
+        .flatten({ background: '#ffffff' })
+        .jpeg({ quality: 88 })
+        .toBuffer({ resolveWithObject: true })
+    : await imagePipeline.png({ compressionLevel: 8 }).toBuffer({ resolveWithObject: true });
+
+  return {
+    cleanBuffer,
+    rawHash,
+    cleanHash: computeSha256(cleanBuffer),
+    metadataStripped: true,
+    mimeType: isJpeg ? 'image/jpeg' : 'image/png',
+    width: info.width,
+    height: info.height
+  };
+}
+
+const DECODED_FORMATS = ['jpeg', 'png', 'webp', 'tiff'];
+const WORKING_MAX_EDGE = 2048;
+
+/** Error carrying an HTTP 400 status for client-input problems. */
+function badRequest(message) {
+  const err = new Error(message);
+  err.statusCode = 400;
+  return err;
 }
 
 /**
@@ -120,15 +134,17 @@ function sanitizeExtractedText(text) {
  * @param {string} operationName 
  */
 function withTimeout(promise, timeoutMs = 15000, operationName = 'Operation') {
+  let timer;
   return Promise.race([
     promise,
-    new Promise((_, reject) =>
-      setTimeout(() => reject(new Error(`${operationName} timed out after ${timeoutMs}ms`)), timeoutMs)
-    )
-  ]);
+    new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`${operationName} timed out after ${timeoutMs}ms`)), timeoutMs);
+    })
+  ]).finally(() => clearTimeout(timer));
 }
 
 module.exports = {
+  badRequest,
   validateUpload,
   computeSha256,
   sanitizeImageMetadata,
