@@ -43,10 +43,10 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
   return (
     <div>
       <div style={{ marginBottom: '1.25rem' }}>
-        <h2 style={{ fontSize: '1.25rem', fontWeight: 700, color: '#f8fafc' }}>
+        <h2 style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--text-main)' }}>
           Purchase Order Line Registry
         </h2>
-        <p style={{ fontSize: '0.85rem', color: '#94a3b8' }}>
+        <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
           Authoritative purchase orders received from ERP/Procurement for dock verification.
         </p>
       </div>
@@ -54,7 +54,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
       {/* Filter and Search Bar */}
       <div
         className="card-panel"
-        style={{ marginBottom: '1.25rem', padding: '1rem', backgroundColor: '#0f172a' }}
+        style={{ marginBottom: '1.25rem', padding: '1rem', backgroundColor: 'var(--bg-inset)' }}
       >
         <div
           style={{
@@ -74,7 +74,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                 left: '12px',
                 top: '50%',
                 transform: 'translateY(-50%)',
-                color: '#64748b',
+                color: 'var(--text-dim)',
               }}
             />
             <input
@@ -89,7 +89,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
 
           {/* Supplier Dropdown */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <Building2 size={16} style={{ color: '#94a3b8' }} />
+            <Building2 size={16} style={{ color: 'var(--text-muted)' }} />
             <select
               className="form-select"
               value={selectedSupplier}
@@ -115,10 +115,10 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
               className="font-mono"
               style={{
                 fontSize: '0.75rem',
-                backgroundColor: '#1e293b',
+                backgroundColor: 'var(--bg-card-subtle)',
                 padding: '0.2rem 0.5rem',
                 borderRadius: '4px',
-                color: '#94a3b8',
+                color: 'var(--text-muted)',
               }}
             >
               {filteredPOs.length} Line Items
@@ -147,22 +147,22 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                 return (
                   <tr key={p.id}>
                     <td>
-                      <span className="font-mono" style={{ fontWeight: 600, color: '#38bdf8' }}>
+                      <span className="font-mono" style={{ fontWeight: 600, color: 'var(--info-text)' }}>
                         {p.poNumber}
                       </span>
                     </td>
                     <td className="font-mono">#{p.poLine}</td>
-                    <td style={{ color: '#cbd5e1', fontSize: '0.825rem' }}>{p.supplier}</td>
+                    <td style={{ color: 'var(--text-main)', fontSize: '0.825rem' }}>{p.supplier}</td>
                     <td>
-                      <div className="font-mono" style={{ fontWeight: 600, color: '#f8fafc' }}>
+                      <div className="font-mono" style={{ fontWeight: 600, color: 'var(--text-main)' }}>
                         {p.sku}
                       </div>
-                      <div className="font-mono" style={{ fontSize: '0.725rem', color: '#64748b' }}>
+                      <div className="font-mono" style={{ fontSize: '0.725rem', color: 'var(--text-dim)' }}>
                         {p.asin}
                       </div>
                     </td>
                     <td style={{ maxWidth: '240px' }}>{p.productTitle}</td>
-                    <td style={{ fontSize: '0.8rem', color: '#94a3b8' }}>
+                    <td style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
                       {p.specColour} / {p.specVariant}
                     </td>
                     <td style={{ textAlign: 'right', fontFamily: 'var(--font-mono)' }}>
@@ -176,7 +176,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                         textAlign: 'right',
                         fontFamily: 'var(--font-mono)',
                         fontWeight: 700,
-                        color: '#34d399',
+                        color: 'var(--ok-text)',
                       }}
                     >
                       {p.qtyOrdered}

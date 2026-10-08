@@ -68,6 +68,7 @@ const prosecution = (overrides: any = {}) => ({
   variant_determinable: true,
   detected_variant: 'Steel Blue / 4-Port',
   packaging_status: 'INTACT',
+  components_determinable: true,
   missing_components: [],
   findings: [],
   overall_confidence: 0.9,
@@ -92,7 +93,7 @@ const blind = (anomaly: 'YES' | 'NO' | 'UNCLEAR', confidence = 0.9) => () =>
     observations: [anomaly === 'YES' ? 'Two empty cavities are visible in the tray.' : 'Intact units in a foam tray.'],
     visible_text: '',
     units_count_determinable: true,
-    units_visible: 3,
+    units_visible: anomaly === 'YES' ? 3 : 4, // consistent with the Prosecutor's count (4) when nothing is wrong
     empty_slots_visible: anomaly === 'YES' ? 1 : 0,
     damage: 'NONE',
     anomaly_present: anomaly,

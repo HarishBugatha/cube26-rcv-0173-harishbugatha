@@ -147,8 +147,8 @@ export const EvidenceGraph: React.FC<EvidenceGraphProps> = ({
                       <div className="eg-node-type">
                         <ImageIcon size={12} /> Image crop
                       </div>
-                      {cropNode?.data?.cropBase64 ? (
-                        <img src={cropNode.data.cropBase64} alt={`Crop for finding ${idx + 1}`} />
+                      {debatedClaims[idx]?.evidence?.cropBase64 ? (
+                        <img src={debatedClaims[idx].evidence.cropBase64} alt={`Crop for finding ${idx + 1}`} />
                       ) : (
                         <div className="xsmall dim" style={{ height: 56, display: 'flex', alignItems: 'center' }}>No crop</div>
                       )}

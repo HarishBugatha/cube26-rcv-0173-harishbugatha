@@ -74,7 +74,8 @@ export function observedFeaturesOf(report: DebateInspectionReport, po: PRDScenar
 export function isVisuallyVerified(report: DebateInspectionReport, po: PRDScenarioPo): boolean {
   const observed = observedFeaturesOf(report, po);
   if (report.verification && report.verification.status !== 'COMPLETE') return false;
-  return observed.source !== 'NONE' && typeof observed.itemsDetected === 'number';
+  const count = observed.itemsDetected;
+  return observed.source !== 'NONE' && typeof count === 'number' && Number.isSafeInteger(count) && count >= 0;
 }
 
 /** Human-readable reason why an inspection cannot be recorded as a verified receipt. */
@@ -107,10 +108,10 @@ export function buildPendingRecordFromInspection(
     poLine: 1,
     supplier: report.vendor,
     sku: report.expectedSku,
-    asin: 'B0DEBATE01',
+    asin: '', // not known from a photo inspection
     productTitle: po.productName || 'Inspected product',
-    specColour: po.expectedVariant || 'Standard',
-    specVariant: po.expectedVariant || 'Standard',
+    specColour: po.expectedVariant || '',
+    specVariant: po.expectedVariant || '',
     specComponents: (po.expectedComponents || []).join(', '),
     cartonsOrdered: 1,
     unitsPerCartonOrdered: qtyOrdered,
@@ -188,6 +189,9 @@ export function buildRecordFromInspection(
     unitDamage: 'none',
     qualityFlags,
     identityMatchOverride: identityMatch,
+    // Any CHALLENGED finding (quantity, component, variant, nominal check, …) keeps the record
+    // UNCERTAIN, matching the report verdict — an unresolved finding is never recorded as MATCHED.
+    uncertain: claims.some(challenged) || report.finalVerdict === 'UNCERTAIN',
   });
 
   const findingSummary = claims
@@ -202,10 +206,10 @@ export function buildRecordFromInspection(
     poLine: 1,
     supplier: report.vendor,
     sku: report.expectedSku,
-    asin: 'B0DEBATE01',
+    asin: '', // not known from a photo inspection
     productTitle: po.productName || 'Inspected product',
-    specColour: po.expectedVariant || 'Standard',
-    specVariant: po.expectedVariant || 'Standard',
+    specColour: po.expectedVariant || '',
+    specVariant: po.expectedVariant || '',
     specComponents: (po.expectedComponents || []).join(', '),
     cartonsOrdered: 1,
     unitsPerCartonOrdered: qtyOrdered,

@@ -209,7 +209,7 @@ A Receiving Manager prototype built with **React 19, TypeScript 5.8, Vite 6, Exp
 
 ```bash
 npm install
-npm test                 # 103 unit & integration tests (Vitest)
+npm test                 # 127 unit & integration tests (Vitest)
 npm run build            # type-check + production bundle into dist/
 node server/server.js    # API + built UI on http://localhost:3001
 ```

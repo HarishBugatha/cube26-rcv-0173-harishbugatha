@@ -70,13 +70,16 @@ export const StructuredReportView: React.FC<StructuredReportViewProps> = ({
     <section className="stack fade-in" style={{ gap: 16 }} aria-label="Inspection result">
       {/* Verdict */}
       <div className={`verdict-banner v-${report.finalVerdict}`} role="status">
-        <div className="verdict-icon" aria-hidden="true">
-          <VerdictIcon size={26} />
+        <div className={`stamp v-${report.finalVerdict}`} key={report.inspectionId} aria-hidden="true">
+          <span className="stamp-word">{report.finalVerdict}</span>
+          <span className="stamp-sub">{report.inspectionId.replace(/^INSP-/, '')}</span>
         </div>
         <div style={{ minWidth: 0 }}>
-          <div className="page-eyebrow" style={{ marginBottom: 2 }}>Inspection verdict</div>
-          <div className="verdict-word">{report.finalVerdict}</div>
-          <div className="verdict-meaning">{meta.meaning}</div>
+          <div className="page-eyebrow" style={{ marginBottom: 2 }}>
+            <VerdictIcon size={12} style={{ verticalAlign: '-2px', marginRight: 4 }} />
+            Inspection verdict · {report.finalVerdict}
+          </div>
+          <div className="verdict-meaning" style={{ fontWeight: 700, fontSize: '1rem' }}>{meta.meaning}</div>
           <div className="verdict-rationale">{report.decisionRationale}</div>
         </div>
         <div className="verdict-actions stack" style={{ gap: 8, alignItems: 'stretch' }}>
@@ -123,7 +126,7 @@ export const StructuredReportView: React.FC<StructuredReportViewProps> = ({
       {/* Verification not completed (fail open) */}
       {report.verification && report.verification.status === 'INCOMPLETE' && (
         <div className="notice" role="alert" data-testid="verification-incomplete"
-          style={{ borderColor: 'var(--warn-border)', background: 'var(--warn-bg)', color: '#fde68a' }}>
+          style={{ borderColor: 'var(--warn-border)', background: 'var(--warn-bg)', color: 'var(--warn-text)' }}>
           <div>
             <strong>Verification not completed.</strong> The result is UNCERTAIN and cannot become ACCEPT.
             <ul style={{ margin: '4px 0 0', paddingLeft: 18 }}>
@@ -145,7 +148,7 @@ export const StructuredReportView: React.FC<StructuredReportViewProps> = ({
         </div>
         <div>
           <div className="kv-label">Purchase order</div>
-          <div className="kv-value mono">{report.poNumber}</div>
+          <div className={`kv-value ${report.poNumber ? 'mono' : 'dim'}`}>{report.poNumber || 'Not provided'}</div>
         </div>
         <div>
           <div className="kv-label">Expected SKU</div>
@@ -153,7 +156,7 @@ export const StructuredReportView: React.FC<StructuredReportViewProps> = ({
         </div>
         <div>
           <div className="kv-label">Supplier</div>
-          <div className="kv-value" title={report.vendor}>{report.vendor}</div>
+          <div className={`kv-value ${report.vendor ? '' : 'dim'}`} title={report.vendor}>{report.vendor || 'Not provided'}</div>
         </div>
         <div>
           <div className="kv-label">Findings</div>
@@ -257,7 +260,7 @@ export const StructuredReportView: React.FC<StructuredReportViewProps> = ({
         </div>
         <div className="panel-body grid-2">
           <HashField label="Uploaded image (raw bytes)" value={report.securityAudit?.rawImageSha256} />
-          <HashField label="Sanitised image (after metadata strip)" value={report.securityAudit?.cleanImageSha256} />
+          <HashField label="Inspected working copy (EXIF stripped)" value={report.securityAudit?.cleanImageSha256} />
         </div>
       </div>
     </section>

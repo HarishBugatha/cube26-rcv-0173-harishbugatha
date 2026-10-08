@@ -1,3 +1,4 @@
+const crypto = require('crypto');
 const { extractCrop, generateAnnotatedImage } = require('./cropEngine');
 const { computeSha256, sanitizeExtractedText } = require('./security');
 const { normaliseBbox } = require('./visionProvider');
@@ -40,10 +41,12 @@ function resolveObservedFeatures(po, scenarioMeta = null) {
     };
   }
   const meta = scenarioMeta;
+  // 0 detected units is a real observation (empty carton), not "missing" — only null/NaN falls back
+  const detected = meta.itemsDetected == null ? NaN : Number(meta.itemsDetected);
   return {
     source: 'SCENARIO_METADATA',
     expectedQuantity: expectedQty,
-    itemsDetected: Number(meta.itemsDetected) || expectedQty,
+    itemsDetected: Number.isFinite(detected) ? detected : expectedQty,
     detectedSku: meta.detectedSku,
     detectedVariant: meta.detectedVariant,
     packagingStatus: meta.packagingStatus,
@@ -137,23 +140,98 @@ const CHECK_FOR_CLAIM_TYPE = {
   MISSING_COMPONENT: 'COMPONENTS'
 };
 
+const UNDETERMINED_CHECK = {
+  QUANTITY_UNDETERMINED: 'QUANTITY',
+  AMBIGUOUS_LABEL: 'SKU',
+  VARIANT_UNDETERMINED: 'VARIANT',
+  PACKAGING_UNCLEAR: 'PACKAGING',
+  COMPONENTS_UNDETERMINED: 'COMPONENTS'
+};
+
+// Vision path: neutral, model-derived wording replacing fixture-specific descriptions
+const VISION_OBSERVED_TEXT = {
+  AMBIGUOUS_LABEL: (o, f) => `Label read as "${f.detectedSku}", which only partially matches the PO SKU`,
+  PACKAGING_CRUSH: (o) => `Vision model reported packaging status ${o.packaging_status}`,
+  WATER_DAMAGE: (o) => `Vision model reported packaging status ${o.packaging_status}`,
+  TORN_PACKAGING_BROKEN_SEAL: (o) => `Vision model reported packaging status ${o.packaging_status}`,
+  MISSING_COMPONENT: (o, f) => `Vision model reported missing: ${f.missingComponents.join(', ')}`
+};
+const VISION_TITLE = {
+  AMBIGUOUS_LABEL: 'SKU label only partially legible / partially matching',
+  MISSING_COMPONENT: 'Missing kit component'
+};
+
 const FULL_IMAGE = [0, 0, 1, 1];
+const noop = () => {};
+
+/** Case/punctuation-insensitive form used for identity comparisons. */
+const alnum = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+
+/** Every word of `phrase` appears in `text` (both normalised). Empty phrase or text → null (no evidence). */
+function textContainsAll(text, phrase) {
+  const hay = alnum(text);
+  const words = String(phrase || '').split(/[^A-Za-z0-9]+/).map(alnum).filter(Boolean);
+  if (!hay || words.length === 0) return null;
+  return words.every((w) => hay.includes(w));
+}
+
+const DAMAGE_FOR_CLAIM = { PACKAGING_CRUSH: 'CRUSHING', WATER_DAMAGE: 'WATER', TORN_PACKAGING_BROKEN_SEAL: 'TEAR' };
+
+/**
+ * Does the Blind Verifier's independent output support THIS finding? true / false / null (unclear).
+ * Claim-specific, so a dent seen in a quantity crop cannot verify a shortage. The Blind Verifier never
+ * sees the PO; the comparison against the Prosecutor's observation is done here, in code.
+ */
+function blindConfirms(claim, blind, observed) {
+  const countKnown = blind.units_count_determinable;
+  switch (claim.type) {
+    case 'QUANTITY_SHORTAGE':
+      // An independent count decides when there is one; a contradicting count is never overridden
+      if (countKnown) return blind.units_visible === observed.itemsDetected;
+      return blind.anomaly_present === 'YES' && blind.empty_slots_visible > 0 ? true : null;
+    case 'QUANTITY_OVERAGE':
+      return countKnown ? blind.units_visible === observed.itemsDetected : null;
+    case 'SKU_MISMATCH':
+    case 'VARIANT_MISMATCH': {
+      // The crop must show the detected value and must not show the PO value
+      const detected = claim.type === 'SKU_MISMATCH' ? observed.detectedSku : observed.detectedVariant;
+      const seesDetected = textContainsAll(blind.visible_text, detected);
+      if (seesDetected === null) return null;
+      return seesDetected && textContainsAll(blind.visible_text, claim.poExpected) !== true;
+    }
+    case 'PACKAGING_CRUSH':
+    case 'WATER_DAMAGE':
+    case 'TORN_PACKAGING_BROKEN_SEAL':
+      if (blind.damage === 'UNCLEAR' || blind.damage === 'OTHER') return null;
+      return blind.damage === DAMAGE_FOR_CLAIM[claim.type];
+    case 'MISSING_COMPONENT':
+      // Only an empty slot, or an anomaly that is not damage, supports a missing part (a dent does not)
+      if (blind.empty_slots_visible > 0 || (blind.anomaly_present === 'YES' && blind.damage === 'NONE')) return true;
+      return blind.anomaly_present === 'NO' ? false : null;
+    default:
+      return blind.anomaly_present === 'YES' ? true : blind.anomaly_present === 'NO' ? false : null;
+  }
+}
 
 /** A finding the Prosecutor could not determine from the photo. Directly CHALLENGED (insufficient evidence). */
 async function buildUndeterminedClaim(spec, observation, imageBuffer, cleanImageHash) {
   const startTime = Date.now();
   const { cropBase64, cropHash, pixelCoords } = await extractCrop(imageBuffer, FULL_IMAGE, 0);
-  const notRun = 'Not run: no finding to verify — the Prosecutor could not determine this from the photo.';
+  const notRun = spec.physicalObserved
+    ? 'Not run: the Prosecutor\'s output is self-contradictory for this check; manual inspection required.'
+    : 'Not run: no finding to verify — the Prosecutor could not determine this from the photo.';
   return {
     claimId: spec.id,
     claimTitle: spec.title,
     claimType: spec.type,
     severity: 'BLOCKING',
     poExpected: spec.poExpected,
-    physicalObserved: 'Not determinable from the photo',
+    physicalObserved: spec.physicalObserved || 'Not determinable from the photo',
     bbox: FULL_IMAGE,
     status: 'CHALLENGED',
-    classificationRationale: `${spec.title}: the photo does not show enough to decide. Insufficient evidence stays UNCERTAIN.`,
+    classificationRationale: spec.physicalObserved
+      ? `${spec.physicalObserved}. Contradictory evidence stays UNCERTAIN.`
+      : `${spec.title}: the photo does not show enough to decide. Insufficient evidence stays UNCERTAIN.`,
     prosecutor: {
       role: 'PROSECUTOR',
       thesis: spec.title,
@@ -198,18 +276,20 @@ function notRunRole(role, reason, extra = {}) {
  * a failed Prosecutor yields a single VISUAL_VERIFICATION_UNAVAILABLE claim; a failed
  * Defender or Blind Verifier marks the affected findings CHALLENGED via classifyClaim.
  */
-async function runVisionInspection(po, cleanImageBuffer, cleanImageHash, provider) {
+async function runVisionInspection(po, cleanImageBuffer, cleanImageHash, provider, { onEvent = noop, signal } = {}) {
   const reasons = [];
   const expectedQty = Number(po.expectedQuantity) || 1;
   const noObservation = { ...resolveObservedFeatures(po, null), source: 'VISION_MODEL' };
 
   // ROLE 1: PROSECUTOR (one call carrying all checks)
+  onEvent({ type: 'stage', stage: 'PROSECUTOR', status: 'started', mode: 'VISION_MODEL' });
   let observation;
   try {
-    observation = await provider.prosecute(cleanImageBuffer, po);
+    observation = await provider.prosecute(cleanImageBuffer, po, signal);
   } catch (err) {
     const reason = err && err.message ? err.message : String(err);
     reasons.push({ stage: 'PROSECUTOR', kind: err.kind || 'API_ERROR', reason });
+    onEvent({ type: 'stage', stage: 'PROSECUTOR', status: 'failed', mode: 'VISION_MODEL', reason });
     return {
       observedFeatures: noObservation,
       debatedClaims: [await buildVisionUnavailableClaim(po, cleanImageBuffer, cleanImageHash, reason)],
@@ -220,6 +300,7 @@ async function runVisionInspection(po, cleanImageBuffer, cleanImageHash, provide
   if (!observation.image_usable) {
     const reason = `Photo not usable for inspection${observation.unusable_reason ? `: ${sanitizeExtractedText(observation.unusable_reason)}` : ''}`;
     reasons.push({ stage: 'PROSECUTOR', kind: 'INSUFFICIENT_EVIDENCE', reason });
+    onEvent({ type: 'stage', stage: 'PROSECUTOR', status: 'failed', mode: 'VISION_MODEL', reason });
     return {
       observedFeatures: noObservation,
       debatedClaims: [await buildVisionUnavailableClaim(po, cleanImageBuffer, cleanImageHash, reason)],
@@ -229,12 +310,14 @@ async function runVisionInspection(po, cleanImageBuffer, cleanImageHash, provide
 
   // Observations reported by the model (untrusted text is sanitised); null = not determinable
   const packaging = observation.packaging_status === 'UNCLEAR' ? null : observation.packaging_status;
+  // "readable" with an empty string is not a reading: treat as not determinable
+  const textOrNull = (flag, value) => (flag && sanitizeExtractedText(value)) || null;
   const observedFeatures = {
     source: 'VISION_MODEL',
     expectedQuantity: expectedQty,
     itemsDetected: observation.items_count_determinable ? observation.items_detected : null,
-    detectedSku: observation.sku_label_readable ? sanitizeExtractedText(observation.detected_sku) : null,
-    detectedVariant: observation.variant_determinable ? sanitizeExtractedText(observation.detected_variant) : null,
+    detectedSku: textOrNull(observation.sku_label_readable, observation.detected_sku),
+    detectedVariant: textOrNull(observation.variant_determinable, observation.detected_variant),
     packagingStatus: packaging,
     missingComponents: observation.missing_components.map((c) => sanitizeExtractedText(c)).filter(Boolean)
   };
@@ -248,7 +331,7 @@ async function runVisionInspection(po, cleanImageBuffer, cleanImageHash, provide
     packagingStatus: observedFeatures.packagingStatus ?? 'INTACT',
     missingComponents: observedFeatures.missingComponents
   };
-  const candidateClaims = await extractFeaturesAndGenerateClaims(po, cleanImageBuffer, comparisonMeta);
+  const candidateClaims = await extractFeaturesAndGenerateClaims(po, cleanImageBuffer, comparisonMeta, { strict: true });
 
   const undetermined = [];
   if (observedFeatures.itemsDetected === null) {
@@ -257,8 +340,14 @@ async function runVisionInspection(po, cleanImageBuffer, cleanImageHash, provide
   if (observedFeatures.detectedSku === null) {
     undetermined.push({ id: 'CLM-SKU-00', type: 'AMBIGUOUS_LABEL', title: 'SKU label not legible in the photo', poExpected: `Legible label matching ${po.expectedSku}` });
   }
-  if (observedFeatures.detectedVariant === null) {
-    undetermined.push({ id: 'CLM-VAR-00', type: 'VARIANT_UNDETERMINED', title: 'Variant not determinable from the photo', poExpected: po.expectedVariant || 'Standard' });
+  // No variant on the order = nothing to check, so an unreadable variant is not an uncertainty
+  if (observedFeatures.detectedVariant === null && po.expectedVariant) {
+    undetermined.push({ id: 'CLM-VAR-00', type: 'VARIANT_UNDETERMINED', title: 'Variant not determinable from the photo', poExpected: po.expectedVariant });
+  }
+  // An empty missing_components list only means "kit complete" when the photo actually shows the kit
+  const expectedComponents = Array.isArray(po.expectedComponents) ? po.expectedComponents : [];
+  if (expectedComponents.length > 0 && !observation.components_determinable && observedFeatures.missingComponents.length === 0) {
+    undetermined.push({ id: 'CLM-CMP-00', type: 'COMPONENTS_UNDETERMINED', title: 'Kit completeness not determinable from the photo', poExpected: `Complete kit: ${expectedComponents.join(', ')}` });
   }
   if (observedFeatures.packagingStatus === null) {
     undetermined.push({ id: 'CLM-PKG-00', type: 'PACKAGING_UNCLEAR', title: 'Packaging condition not determinable from the photo', poExpected: 'Intact, undamaged packaging' });
@@ -271,6 +360,14 @@ async function runVisionInspection(po, cleanImageBuffer, cleanImageHash, provide
     claim.bbox = (finding && normaliseBbox(finding.bbox)) || FULL_IMAGE;
     claim.regionDescription = finding ? sanitizeExtractedText(finding.description) : 'Entire photo';
     claim.prosecutorConfidence = finding ? finding.confidence : observation.overall_confidence;
+    // The comparator's descriptive texts were written for the scenario fixtures ("slot #3", "glare",
+    // "Space Gray / 64GB"). For a real photo, state only what the model reported.
+    const reported = VISION_OBSERVED_TEXT[claim.type];
+    if (reported) {
+      claim.physicalObserved = reported(observation, observedFeatures);
+      claim.title = VISION_TITLE[claim.type] || claim.title;
+    }
+    if (finding) claim.physicalObserved = sanitizeExtractedText(finding.description) || claim.physicalObserved;
     claim.prosecutorArgument = finding
       ? sanitizeExtractedText(finding.description)
       : claim.type === 'NOMINAL_COMPLIANCE'
@@ -278,53 +375,63 @@ async function runVisionInspection(po, cleanImageBuffer, cleanImageHash, provide
         : claim.physicalObserved;
   });
 
-  // ROLE 2: DEFENDER (one call for all findings, full context)
-  let defense = null;
-  let defenderFailure = null;
-  try {
-    defense = await provider.defend(cleanImageBuffer, candidateClaims);
-  } catch (err) {
-    defenderFailure = err && err.message ? err.message : String(err);
-    reasons.push({ stage: 'DEFENDER', kind: err.kind || 'API_ERROR', reason: defenderFailure });
-  }
+  // Prosecutor findings whose check produced no claim contradict its own structured result;
+  // they are surfaced as CHALLENGED instead of being silently dropped.
+  const coveredChecks = new Set(candidateClaims.map((c) => CHECK_FOR_CLAIM_TYPE[c.type]).filter(Boolean));
+  const undeterminedChecks = new Set(undetermined.map((u) => UNDETERMINED_CHECK[u.type]));
+  observation.findings
+    .filter((f) => !coveredChecks.has(f.check) && !undeterminedChecks.has(f.check))
+    .forEach((f, i) => {
+      const desc = sanitizeExtractedText(f.description);
+      undetermined.push({
+        id: `CLM-UNR-${String(i + 1).padStart(2, '0')}`,
+        type: 'UNRECONCILED_FINDING',
+        title: `Unreconciled ${f.check.toLowerCase()} finding: ${desc}`.slice(0, 160),
+        poExpected: `${f.check} consistent with the purchase order`,
+        physicalObserved: `Prosecutor raised this finding, but its structured result reports no ${f.check.toLowerCase()} difference`
+      });
+    });
+
+  onEvent({
+    type: 'stage',
+    stage: 'PROSECUTOR',
+    status: 'done',
+    mode: 'VISION_MODEL',
+    observedFeatures,
+    claims: [...candidateClaims, ...undetermined].map((c) => ({ claimId: c.id, claimType: c.type, claimTitle: c.title, bbox: c.bbox || FULL_IMAGE }))
+  });
+
+  // ROLE 2: DEFENDER (one call for all findings, full context). Runs concurrently with the
+  // Blind Verifier calls, which never see its output; classification waits for both.
+  onEvent({ type: 'stage', stage: 'DEFENDER', status: 'started' });
+  const defensePromise = provider.defend(cleanImageBuffer, candidateClaims, signal).then(
+    (defense) => {
+      onEvent({
+        type: 'stage',
+        stage: 'DEFENDER',
+        status: 'done',
+        responses: defense.responses.map((r) => ({ claimId: r.claim_id, stance: r.stance, plausibility: r.plausibility }))
+      });
+      return { defense, defenderFailure: null, kind: null };
+    },
+    (err) => {
+      const defenderFailure = err && err.message ? err.message : String(err);
+      onEvent({ type: 'stage', stage: 'DEFENDER', status: 'failed', reason: defenderFailure });
+      return { defense: null, defenderFailure, kind: err.kind || 'API_ERROR' };
+    }
+  );
 
   // ROLE 3: BLIND VERIFIER (one isolated call per finding: crop + fixed task only)
-  const debatedClaims = await Promise.all(
+  const blindResults = await Promise.all(
     candidateClaims.map(async (claim) => {
       const startTime = Date.now();
       const crop = await extractCrop(cleanImageBuffer, claim.bbox, 0.05);
 
-      const prosecutor = {
-        role: 'PROSECUTOR',
-        thesis: claim.type === 'NOMINAL_COMPLIANCE' ? 'No discrepancy asserted' : `Defect Assertion: ${claim.title}`,
-        defectType: claim.type,
-        severity: claim.severity,
-        evidenceFocus: claim.regionDescription,
-        confidence: claim.prosecutorConfidence,
-        arguments: [claim.prosecutorArgument]
-      };
-
-      let defender;
-      const response = defense ? defense.responses.find((r) => r.claim_id === claim.id) : null;
-      if (response) {
-        defender = {
-          role: 'DEFENDER',
-          stance: response.stance,
-          arguments: response.arguments.map((a) => sanitizeExtractedText(a)),
-          defensePlausibility: response.plausibility,
-          concession: response.stance === 'CONCEDE_DEFECT' ? 'Defender conceded the finding.' : null
-        };
-      } else {
-        defender = notRunRole('DEFENDER', defenderFailure || 'no Defender response for this finding', {
-          stance: 'NOT_RUN',
-          defensePlausibility: 0,
-          concession: null
-        });
-      }
-
       let blindVerifier;
+      let failure = null;
+      onEvent({ type: 'stage', stage: 'BLIND_VERIFIER', status: 'started', claimId: claim.id });
       try {
-        const blind = await provider.blindVerify(crop.cropBuffer);
+        const blind = await provider.blindVerify(crop.cropBuffer, signal);
         blindVerifier = {
           role: 'BLIND_VERIFIER',
           protocol: 'STRICT_ISOLATION',
@@ -340,11 +447,28 @@ async function runVisionInspection(po, cleanImageBuffer, cleanImageHash, provide
           ].filter(Boolean),
           observationalConfidence: blind.confidence,
           independentVerdict: blind.anomaly_present === 'YES' ? `ANOMALY_OBSERVED (${blind.damage})` : blind.anomaly_present === 'NO' ? 'NO_ANOMALY_OBSERVED' : 'UNCLEAR',
-          anomalyDetected: blind.anomaly_present === 'YES' ? true : blind.anomaly_present === 'NO' ? false : null
+          anomalyDetected: blind.anomaly_present === 'YES' ? true : blind.anomaly_present === 'NO' ? false : null,
+          // Claim-specific support, compared in code against the Prosecutor's observation
+          confirmsClaim: blindConfirms(claim, blind, observedFeatures),
+          // Independent unit count vs the Prosecutor's (null when either could not count)
+          countConsistent:
+            blind.units_count_determinable && observedFeatures.itemsDetected !== null
+              ? blind.units_visible === observedFeatures.itemsDetected
+              : null
         };
+        onEvent({
+          type: 'stage',
+          stage: 'BLIND_VERIFIER',
+          status: 'done',
+          claimId: claim.id,
+          anomaly: blind.anomaly_present,
+          confidence: blind.confidence,
+          confirmsClaim: blindVerifier.confirmsClaim ?? null
+        });
       } catch (err) {
         const reason = err && err.message ? err.message : String(err);
-        reasons.push({ stage: 'BLIND_VERIFIER', kind: err.kind || 'API_ERROR', reason: `${claim.id}: ${reason}` });
+        failure = { stage: 'BLIND_VERIFIER', kind: err.kind || 'API_ERROR', reason: `${claim.id}: ${reason}` };
+        onEvent({ type: 'stage', stage: 'BLIND_VERIFIER', status: 'failed', claimId: claim.id, reason });
         blindVerifier = notRunRole('BLIND_VERIFIER', reason, {
           protocol: 'STRICT_ISOLATION',
           promptDelivered: provider.blindVerifierTask,
@@ -356,10 +480,45 @@ async function runVisionInspection(po, cleanImageBuffer, cleanImageHash, provide
           anomalyDetected: null
         });
       }
-
-      return assembleDebatedClaim(claim, prosecutor, defender, blindVerifier, crop, cleanImageHash, startTime);
+      return { claim, crop, blindVerifier, failure, startTime };
     })
   );
+
+  const { defense, defenderFailure, kind: defenderKind } = await defensePromise;
+  if (defenderFailure) reasons.push({ stage: 'DEFENDER', kind: defenderKind, reason: defenderFailure });
+  blindResults.forEach((r) => r.failure && reasons.push(r.failure));
+
+  const debatedClaims = blindResults.map(({ claim, crop, blindVerifier, startTime }) => {
+    const prosecutor = {
+      role: 'PROSECUTOR',
+      thesis: claim.type === 'NOMINAL_COMPLIANCE' ? 'No discrepancy asserted' : `Defect Assertion: ${claim.title}`,
+      defectType: claim.type,
+      severity: claim.severity,
+      evidenceFocus: claim.regionDescription,
+      confidence: claim.prosecutorConfidence,
+      arguments: [claim.prosecutorArgument]
+    };
+
+    let defender;
+    const response = defense ? defense.responses.find((r) => r.claim_id === claim.id) : null;
+    if (response) {
+      defender = {
+        role: 'DEFENDER',
+        stance: response.stance,
+        arguments: response.arguments.map((a) => sanitizeExtractedText(a)),
+        defensePlausibility: response.plausibility,
+        concession: response.stance === 'CONCEDE_DEFECT' ? 'Defender conceded the finding.' : null
+      };
+    } else {
+      defender = notRunRole('DEFENDER', defenderFailure || 'no Defender response for this finding', {
+        stance: 'NOT_RUN',
+        defensePlausibility: 0,
+        concession: null
+      });
+    }
+
+    return assembleDebatedClaim(claim, prosecutor, defender, blindVerifier, crop, cleanImageHash, startTime);
+  });
 
   for (const spec of undetermined) {
     debatedClaims.push(await buildUndeterminedClaim(spec, observation, cleanImageBuffer, cleanImageHash));
@@ -371,7 +530,7 @@ async function runVisionInspection(po, cleanImageBuffer, cleanImageHash, provide
 /**
  * Extract physical features from receiving images & compare with PO
  */
-async function extractFeaturesAndGenerateClaims(po, imageBuffer, scenarioMeta = null) {
+async function extractFeaturesAndGenerateClaims(po, imageBuffer, scenarioMeta = null, { strict = false } = {}) {
   const claims = [];
 
   // Without observations there is nothing to compare; runDebatePipeline reports
@@ -413,7 +572,13 @@ async function extractFeaturesAndGenerateClaims(po, imageBuffer, scenarioMeta = 
   const poSkuClean = sanitizeExtractedText(po.expectedSku || '').toUpperCase();
   const detectedSkuClean = sanitizeExtractedText(meta.detectedSku || '').toUpperCase();
 
-  const isSkuAmbiguous = detectedSkuClean.includes('??') || detectedSkuClean.includes('GLARE') || detectedSkuClean.includes('UNCERTAIN');
+  // Vision path (strict): exact match after normalisation; a partial read is ambiguous, never a match.
+  // Scenario fixtures keep the original substring/keyword rules their scripted data was written for.
+  const skuNorm = alnum(detectedSkuClean);
+  const poSkuNorm = alnum(poSkuClean);
+  const isSkuAmbiguous = strict
+    ? skuNorm !== poSkuNorm && !!skuNorm && !!poSkuNorm && (skuNorm.includes(poSkuNorm) || poSkuNorm.includes(skuNorm))
+    : detectedSkuClean.includes('??') || detectedSkuClean.includes('GLARE') || detectedSkuClean.includes('UNCERTAIN');
 
   if (isSkuAmbiguous) {
     claims.push({
@@ -426,7 +591,11 @@ async function extractFeaturesAndGenerateClaims(po, imageBuffer, scenarioMeta = 
       bbox: [0.45, 0.23, 0.65, 0.78], // Bounding box around glare on barcode
       regionDescription: 'Specular highlight creates overexposed white patch across barcode line matrix'
     });
-  } else if (detectedSkuClean && poSkuClean && !detectedSkuClean.includes(poSkuClean) && !poSkuClean.includes(detectedSkuClean)) {
+  } else if (
+    strict
+      ? skuNorm && poSkuNorm && skuNorm !== poSkuNorm
+      : detectedSkuClean && poSkuClean && !detectedSkuClean.includes(poSkuClean) && !poSkuClean.includes(detectedSkuClean)
+  ) {
     claims.push({
       id: 'CLM-SKU-01',
       type: 'SKU_MISMATCH',
@@ -443,8 +612,11 @@ async function extractFeaturesAndGenerateClaims(po, imageBuffer, scenarioMeta = 
   const poVarClean = sanitizeExtractedText(po.expectedVariant || '').toLowerCase();
   const detectedVarClean = sanitizeExtractedText(meta.detectedVariant || '').toLowerCase();
 
-  if (detectedVarClean && poVarClean && meta.detectedVariant !== po.expectedVariant && 
-      (detectedVarClean.includes('gray') || detectedVarClean.includes('64gb') || detectedVarClean.includes('standard') || detectedVarClean.includes('legacy'))) {
+  const variantDiffers = strict
+    ? alnum(detectedVarClean) !== alnum(poVarClean)
+    : meta.detectedVariant !== po.expectedVariant &&
+      (detectedVarClean.includes('gray') || detectedVarClean.includes('64gb') || detectedVarClean.includes('standard') || detectedVarClean.includes('legacy'));
+  if (detectedVarClean && poVarClean && variantDiffers) {
     claims.push({
       id: 'CLM-VAR-01',
       type: 'VARIANT_MISMATCH',
@@ -514,7 +686,7 @@ async function extractFeaturesAndGenerateClaims(po, imageBuffer, scenarioMeta = 
       type: 'NOMINAL_COMPLIANCE',
       title: 'Full PO Item & Packaging Verification',
       severity: 'NONE',
-      poExpected: `SKU: ${po.expectedSku}, Qty: ${expectedQty}, Variant: ${po.expectedVariant || 'Standard'}`,
+      poExpected: `SKU: ${po.expectedSku}, Qty: ${expectedQty}${po.expectedVariant ? `, Variant: ${po.expectedVariant}` : ''}`,
       physicalObserved: `All ${detectedQty} units match SKU ${po.expectedSku}, variant confirmed, packaging pristine`,
       bbox: [0.19, 0.13, 0.42, 0.50], // Bounding box around shipping label
       regionDescription: 'Shipping label and package contents match PO specification in all dimensions'
@@ -876,8 +1048,12 @@ Objectively describe:
  * scripted fixtures leave it undefined, which keeps their outcomes unchanged.
  */
 function classifyClaim(claim, prosecutor, defender, blindVerifier) {
-  const blindSays = blindVerifier.anomalyDetected;
-  const isVision = blindSays !== undefined;
+  const isVision = blindVerifier.anomalyDetected !== undefined;
+  // Defect findings use claim-specific confirmation when available; the nominal check uses "any anomaly"
+  const blindSays =
+    claim.type !== 'NOMINAL_COMPLIANCE' && 'confirmsClaim' in blindVerifier
+      ? blindVerifier.confirmsClaim
+      : blindVerifier.anomalyDetected;
   const conf = blindVerifier.observationalConfidence;
 
   const notRun = [prosecutor, defender, blindVerifier].filter((r) => r.notRun);
@@ -893,19 +1069,28 @@ function classifyClaim(claim, prosecutor, defender, blindVerifier) {
     if (!isVision) {
       return { classification: 'REJECTED', rationale: 'Blind verifier confirmed pristine surface; no defect exists.' };
     }
-    if (blindSays === false && conf >= 0.70) {
+    // ACCEPT needs: no anomaly seen independently, both roles confident, and the independent
+    // unit count not contradicting the Prosecutor's count.
+    const defenderAgrees = defender.stance === 'SUPPORT_CLEAN' || defender.stance === 'WEAK_CHALLENGE';
+    if (blindSays === false && conf >= 0.70 && prosecutor.confidence >= 0.75 && blindVerifier.countConsistent !== false && defenderAgrees) {
       return {
         classification: 'REJECTED',
         rationale: `Blind verifier independently saw no anomaly in the photo (confidence ${conf.toFixed(2)}); no defect hypothesis remains.`
       };
     }
-    return {
-      classification: 'CHALLENGED',
-      rationale:
-        blindSays === true
-          ? `Blind verifier independently reported a possible anomaly ("${blindVerifier.independentVerdict}") that the Prosecutor did not raise.`
-          : `Blind verifier could not confirm a clean condition (confidence ${isFinite(conf) ? conf.toFixed(2) : 'n/a'}).`
-    };
+    let why;
+    if (blindSays === true) {
+      why = `Blind verifier independently reported a possible anomaly ("${blindVerifier.independentVerdict}") that the Prosecutor did not raise.`;
+    } else if (!defenderAgrees) {
+      why = `Defender did not support a clean result (stance ${defender.stance}).`;
+    } else if (blindVerifier.countConsistent === false) {
+      why = 'Blind verifier\'s independent unit count differs from the Prosecutor\'s count.';
+    } else if (!(prosecutor.confidence >= 0.75)) {
+      why = `Prosecutor confidence (${isFinite(prosecutor.confidence) ? prosecutor.confidence.toFixed(2) : 'n/a'}) is too low to accept the delivery automatically.`;
+    } else {
+      why = `Blind verifier could not confirm a clean condition (confidence ${isFinite(conf) ? conf.toFixed(2) : 'n/a'}).`;
+    }
+    return { classification: 'CHALLENGED', rationale: why };
   }
 
   if (claim.type === 'AMBIGUOUS_LABEL' || conf < 0.70 || defender.stance === 'VALID_CHALLENGE') {
@@ -992,21 +1177,54 @@ async function runDebatePipeline(po, cleanImageBuffer, cleanImageHash, rawImageH
   }
 
   const pipelineStart = Date.now();
+  // Progress events for streaming clients (see server.js `?stream=1`); never affect the result
+  const onEvent = options.onEvent || noop;
   let debatedClaims = [];
   let observedFeatures;
   let verification;
 
   if (scenarioMeta) {
     // Scenario fixtures (deterministic test/demo data): scripted roles
+    const mode = 'SCENARIO_FIXTURE';
+    onEvent({ type: 'stage', stage: 'PROSECUTOR', status: 'started', mode });
     const candidateClaims = await extractFeaturesAndGenerateClaims(po, cleanImageBuffer, scenarioMeta);
-    for (const claim of candidateClaims) {
-      debatedClaims.push(await executeDebateRoleWorkflow(claim, po, cleanImageBuffer, cleanImageHash));
-    }
     observedFeatures = resolveObservedFeatures(po, scenarioMeta);
+    onEvent({
+      type: 'stage',
+      stage: 'PROSECUTOR',
+      status: 'done',
+      mode,
+      observedFeatures,
+      claims: candidateClaims.map((c) => ({ claimId: c.id, claimType: c.type, claimTitle: c.title, bbox: c.bbox }))
+    });
+    onEvent({ type: 'stage', stage: 'DEFENDER', status: 'started' });
+    for (const claim of candidateClaims) {
+      onEvent({ type: 'stage', stage: 'BLIND_VERIFIER', status: 'started', claimId: claim.id });
+      const debated = await executeDebateRoleWorkflow(claim, po, cleanImageBuffer, cleanImageHash);
+      debatedClaims.push(debated);
+      onEvent({
+        type: 'stage',
+        stage: 'BLIND_VERIFIER',
+        status: 'done',
+        claimId: claim.id,
+        anomaly: null, // scripted fixture: no anomaly flag is produced
+        confidence: debated.blindVerifier.observationalConfidence,
+        confirmsClaim: null
+      });
+    }
+    onEvent({
+      type: 'stage',
+      stage: 'DEFENDER',
+      status: 'done',
+      responses: debatedClaims.map((c) => ({ claimId: c.claimId, stance: c.defender.stance, plausibility: c.defender.defensePlausibility }))
+    });
     verification = { status: 'COMPLETE', mode: 'SCENARIO_FIXTURE', reasons: [] };
   } else if (options.visionProvider) {
     // Uploaded photo inspected by the vision model (Prosecutor, Defender, Blind Verifier)
-    const result = await runVisionInspection(po, cleanImageBuffer, cleanImageHash, options.visionProvider);
+    const result = await runVisionInspection(po, cleanImageBuffer, cleanImageHash, options.visionProvider, {
+      onEvent,
+      signal: options.signal
+    });
     debatedClaims = result.debatedClaims;
     observedFeatures = result.observedFeatures;
     verification = {
@@ -1020,6 +1238,8 @@ async function runDebatePipeline(po, cleanImageBuffer, cleanImageHash, rawImageH
     // not report a match. One CHALLENGED claim states that visual verification was
     // unavailable, which the decision rules below turn into UNCERTAIN.
     const reason = options.unavailableReason || 'No vision model is configured (ANTHROPIC_API_KEY is not set).';
+    // Fail-open after a pipeline failure: the earlier stage events already told the client what ran
+    if (!options.unavailableReason) onEvent({ type: 'stage', stage: 'PROSECUTOR', status: 'failed', mode: 'NONE', reason });
     debatedClaims.push(await buildVisionUnavailableClaim(po, cleanImageBuffer, cleanImageHash, options.unavailableReason));
     observedFeatures = resolveObservedFeatures(po, null);
     verification = {
@@ -1040,7 +1260,8 @@ async function runDebatePipeline(po, cleanImageBuffer, cleanImageHash, rawImageH
   // - Otherwise any CHALLENGED -> UNCERTAIN
   // - Otherwise -> ACCEPT
   const hasVerifiedDefect = debatedClaims.some(c => c.status === 'VERIFIED' && c.claimType !== 'NOMINAL_COMPLIANCE');
-  const hasChallengedClaim = debatedClaims.some(c => c.status === 'CHALLENGED');
+  // Defence in depth: an incomplete verification is never ACCEPT, even if no claim says so
+  const hasChallengedClaim = debatedClaims.some(c => c.status === 'CHALLENGED') || verification.status === 'INCOMPLETE';
 
   let finalVerdict = 'ACCEPT';
   let recommendedAction = 'RELEASE_TO_INVENTORY';
@@ -1077,12 +1298,16 @@ async function runDebatePipeline(po, cleanImageBuffer, cleanImageHash, rawImageH
 
   const totalDurationMs = Date.now() - pipelineStart;
 
+  debatedClaims.forEach((c) => onEvent({ type: 'claim', claimId: c.claimId, status: c.status, rationale: c.classificationRationale }));
+  onEvent({ type: 'stage', stage: 'REPORT', status: 'done', finalVerdict });
+
   // 6. Assemble Structured Inspection Report
   const inspectionReport = {
-    inspectionId: `INSP-${Date.now().toString(36).toUpperCase()}-${Math.floor(Math.random()*1000)}`,
+    // Random suffix from crypto: concurrent requests in the same millisecond must not share an ID
+    inspectionId: `INSP-${Date.now().toString(36).toUpperCase()}-${crypto.randomBytes(4).toString('hex').toUpperCase()}`,
     timestamp: new Date().toISOString(),
     poNumber: po.poNumber,
-    vendor: po.vendor || 'N/A',
+    vendor: po.vendor || '',
     expectedSku: po.expectedSku,
     expectedQuantity: po.expectedQuantity,
     observedFeatures,
@@ -1200,8 +1425,7 @@ function buildEvidenceGraph(verdict, debatedClaims, cleanImageHash, rawImageHash
         promptDelivered: claim.blindVerifier.promptDelivered,
         observations: claim.blindVerifier.observations,
         features: claim.blindVerifier.detectedPhysicalFeatures,
-        cropHash: claim.evidence.cropHash,
-        cropBase64: claim.evidence.cropBase64
+        cropHash: claim.evidence.cropHash
       }
     });
 
@@ -1213,8 +1437,8 @@ function buildEvidenceGraph(verdict, debatedClaims, cleanImageHash, rawImageHash
       label: `Image Crop [${claim.evidence.pixelCoords.width}x${claim.evidence.pixelCoords.height}px]`,
       sha256: claim.evidence.cropHash,
       data: {
+        // The crop image itself is in claim.evidence.cropBase64 (not duplicated here)
         cropHash: claim.evidence.cropHash,
-        cropBase64: claim.evidence.cropBase64,
         bbox: claim.bbox,
         pixelCoords: claim.evidence.pixelCoords
       }
